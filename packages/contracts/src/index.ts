@@ -110,10 +110,12 @@ export type Run = z.infer<typeof runSchema>;
 export const gatewaySubmitSchema = z.strictObject({
   instanceId: z.string().uuid(),
   targetUrl: z.string().min(1).max(4096).optional(),
-  cleaning: z.strictObject({
-    trim: z.boolean().default(true),
-    deduplicate: z.boolean().default(true),
-  }).default({ trim: true, deduplicate: true }),
+  cleaning: z
+    .strictObject({
+      trim: z.boolean().default(true),
+      deduplicate: z.boolean().default(true),
+    })
+    .default({ trim: true, deduplicate: true }),
 });
 export type GatewaySubmission = z.infer<typeof gatewaySubmitSchema>;
 export const gatewayExecutionSchema = z.object({
@@ -135,21 +137,23 @@ export const gatewayJobSchema = z.object({
   run: runSchema.nullable(),
 });
 export type GatewayJob = z.infer<typeof gatewayJobSchema>;
-export const gatewayStateSchema = z.object({
-  schemaVersion: z.literal(1),
-  jobs: z.array(gatewayJobSchema),
-}).superRefine((state, context) => {
-  const ids = new Set<string>();
-  const keys = new Set<string>();
-  for (const job of state.jobs) {
-    if (ids.has(job.id) || (job.idempotencyKey !== null && keys.has(job.idempotencyKey)))
-      context.addIssue({ code: "custom", message: "Duplicate job or idempotency key" });
-    ids.add(job.id);
-    if (job.idempotencyKey !== null) keys.add(job.idempotencyKey);
-    if (job.submission.instanceId !== job.execution.instance.id)
-      context.addIssue({ code: "custom", message: "Job instance mismatch" });
-  }
-});
+export const gatewayStateSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    jobs: z.array(gatewayJobSchema),
+  })
+  .superRefine((state, context) => {
+    const ids = new Set<string>();
+    const keys = new Set<string>();
+    for (const job of state.jobs) {
+      if (ids.has(job.id) || (job.idempotencyKey !== null && keys.has(job.idempotencyKey)))
+        context.addIssue({ code: "custom", message: "Duplicate job or idempotency key" });
+      ids.add(job.id);
+      if (job.idempotencyKey !== null) keys.add(job.idempotencyKey);
+      if (job.submission.instanceId !== job.execution.instance.id)
+        context.addIssue({ code: "custom", message: "Job instance mismatch" });
+    }
+  });
 export type GatewayState = z.infer<typeof gatewayStateSchema>;
 
 export const scriptManifestSchema = z.object({

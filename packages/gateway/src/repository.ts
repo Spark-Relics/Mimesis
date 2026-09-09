@@ -1,6 +1,12 @@
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { AppError, type GatewayJob, type GatewayState, gatewayJobSchema, gatewayStateSchema } from "@clawler/contracts";
+import {
+  AppError,
+  type GatewayJob,
+  type GatewayState,
+  gatewayJobSchema,
+  gatewayStateSchema,
+} from "@clawler/contracts";
 import { cleanResult, serializeResult } from "./results";
 
 export interface GatewayRepository {
@@ -32,16 +38,22 @@ export class FileGatewayRepository implements GatewayRepository {
 
   async load(): Promise<GatewayState | undefined> {
     try {
-      return gatewayStateSchema.parse(JSON.parse(await readFile(join(this.root, "gateway.json"), "utf8")));
+      return gatewayStateSchema.parse(
+        JSON.parse(await readFile(join(this.root, "gateway.json"), "utf8")),
+      );
     } catch (error) {
-      if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") return undefined;
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT")
+        return undefined;
       throw new AppError("STORAGE_FAILED", { cause: error });
     }
   }
 
   async save(state: GatewayState): Promise<void> {
     try {
-      await atomicWrite(join(this.root, "gateway.json"), JSON.stringify(gatewayStateSchema.parse(state), null, 2));
+      await atomicWrite(
+        join(this.root, "gateway.json"),
+        JSON.stringify(gatewayStateSchema.parse(state), null, 2),
+      );
     } catch (error) {
       throw new AppError("STORAGE_FAILED", { cause: error });
     }

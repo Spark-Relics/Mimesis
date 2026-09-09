@@ -85,3 +85,32 @@ it("repairs transition data whose runs predate instance ownership", async () => 
   const migrated = await new JsonWorkspaceRepository(path).load();
   expect(migrated?.runs[0]?.instanceId).toBe(initial.instances[0]?.id);
 });
+
+it("preserves explicit run ownership when two instances share one script and profile", async () => {
+  const path = join(await mkdtemp(join(tmpdir(), "clawler-store-")), "state.json");
+  const first = initial.instances[0];
+  if (!first) throw new Error("Missing instance");
+  const second = { ...first, id: crypto.randomUUID(), name: "Second instance" };
+  const state: StoredState = {
+    ...initial,
+    instances: [first, second],
+    runs: [
+      {
+        id: crypto.randomUUID(),
+        instanceId: second.id,
+        scriptId: first.scriptId,
+        version: "1.0.0",
+        profileId: profile.id,
+        status: "succeeded",
+        startedAt: profile.createdAt,
+        finishedAt: profile.createdAt,
+        steps: [],
+        result: null,
+        errorCode: null,
+      },
+    ],
+  };
+  const repository = new JsonWorkspaceRepository(path);
+  await repository.save(state);
+  expect((await repository.load())?.runs[0]?.instanceId).toBe(second.id);
+});

@@ -111,7 +111,10 @@ export class WorkspaceService {
     if (!instance.enabled) throw new AppError("FORBIDDEN");
     const script = this.registry.get(instance.scriptId);
     return {
-      instance: { ...instance, targetUrl: validateNavigationUrl(submission.targetUrl ?? instance.targetUrl) },
+      instance: {
+        ...instance,
+        targetUrl: validateNavigationUrl(submission.targetUrl ?? instance.targetUrl),
+      },
       scriptVersion: script.manifest.version,
     };
   }

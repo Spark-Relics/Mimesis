@@ -1,7 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { IPC, type RpcResult, requestSchema, toErrorCode } from "@clawler/contracts";
-import { FileGatewayRepository, GatewayQueue, GatewayServer, gatewayConfigFromEnv } from "@clawler/gateway";
+import {
+  FileGatewayRepository,
+  GatewayQueue,
+  GatewayServer,
+  gatewayConfigFromEnv,
+} from "@clawler/gateway";
 import { JsonWorkspaceRepository } from "@clawler/storage";
 import { app, BrowserWindow, ipcMain, protocol, session } from "electron";
 import { assertTrustedSender, resolveAssetPath } from "./security";
@@ -57,9 +62,14 @@ async function createWindow(): Promise<void> {
   const gatewayConfig = gatewayConfigFromEnv(process.env);
   if (gatewayConfig) {
     gatewayQueue = await GatewayQueue.open(
-      new FileGatewayRepository(join(app.getPath("userData"), "runtime")), service,
+      new FileGatewayRepository(join(app.getPath("userData"), "runtime")),
+      service,
     );
-    gatewayServer = await GatewayServer.listen(gatewayConfig, gatewayQueue, () => service?.listInstances() ?? []);
+    gatewayServer = await GatewayServer.listen(
+      gatewayConfig,
+      gatewayQueue,
+      () => service?.listInstances() ?? [],
+    );
     gatewayQueue.start();
     console.info(`Gateway listening at http://127.0.0.1:${gatewayServer.port}`);
   }

@@ -1,6 +1,9 @@
-import { type DocumentSnapshot, type GatewaySubmission, documentSchema } from "@clawler/contracts";
+import { type DocumentSnapshot, documentSchema, type GatewaySubmission } from "@clawler/contracts";
 
-export function cleanResult(input: DocumentSnapshot, options: GatewaySubmission["cleaning"]): DocumentSnapshot {
+export function cleanResult(
+  input: DocumentSnapshot,
+  options: GatewaySubmission["cleaning"],
+): DocumentSnapshot {
   const result = documentSchema.parse(input);
   if (options.trim) {
     result.title = result.title.trim();
@@ -30,6 +33,7 @@ export const resultContentTypes: Record<ResultFormat, string> = {
 function csvCell(value: string): string {
   // Website-controlled values must remain text when opened in a spreadsheet.
   let safe = value;
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: detect control-prefixed spreadsheet formulas from scraped text.
   if (/^[\s\u0000-\u001f]*[=+@-]/u.test(safe) || /^[\t\r\n]/u.test(safe)) safe = `'${safe}`;
   return `"${safe.replaceAll('"', '""')}"`;
 }

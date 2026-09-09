@@ -1,8 +1,21 @@
-import { AppError, type GatewayExecution, type GatewayJob, type GatewayState, type GatewaySubmission, type Run, gatewayExecutionSchema, gatewaySubmitSchema, runSchema, toErrorCode } from "@clawler/contracts";
+import {
+  AppError,
+  type GatewayExecution,
+  type GatewayJob,
+  type GatewayState,
+  type GatewaySubmission,
+  gatewayExecutionSchema,
+  gatewaySubmitSchema,
+  type Run,
+  runSchema,
+  toErrorCode,
+} from "@clawler/contracts";
 import type { GatewayRepository } from "./repository";
 
 export class GatewayError extends Error {
-  constructor(public readonly code: "CONFLICT" | "QUEUE_FULL" | "UNAVAILABLE" | "RESULT_NOT_READY") {
+  constructor(
+    public readonly code: "CONFLICT" | "QUEUE_FULL" | "UNAVAILABLE" | "RESULT_NOT_READY",
+  ) {
     super(code);
   }
 }
@@ -29,8 +42,12 @@ export class GatewayQueue {
     private readonly maxStored: number,
   ) {}
 
-  static async open(repository: GatewayRepository, executor: GatewayExecutor, options: { maxPending?: number; maxStored?: number } = {}): Promise<GatewayQueue> {
-    const state = await repository.load() ?? { schemaVersion: 1, jobs: [] };
+  static async open(
+    repository: GatewayRepository,
+    executor: GatewayExecutor,
+    options: { maxPending?: number; maxStored?: number } = {},
+  ): Promise<GatewayQueue> {
+    const state = (await repository.load()) ?? { schemaVersion: 1, jobs: [] };
     // An interrupted browser action may have had side effects. Never replay it automatically.
     for (const job of state.jobs) {
       if (job.status !== "running") continue;
@@ -40,7 +57,13 @@ export class GatewayQueue {
       await repository.archive(job);
     }
     await repository.save(state);
-    return new GatewayQueue(repository, executor, state, options.maxPending ?? 100, options.maxStored ?? 1000);
+    return new GatewayQueue(
+      repository,
+      executor,
+      state,
+      options.maxPending ?? 100,
+      options.maxStored ?? 1000,
+    );
   }
 
   start(): void {
@@ -66,6 +89,16 @@ export class GatewayQueue {
     if (this.closing) throw new GatewayError("UNAVAILABLE");
   }
 
+  private async archive(job: GatewayJob): Promise<void> {
+    try {
+      await this.repository.archive(job);
+    } catch (error) {
+      this.storageFailed = true;
+      this.active?.controller.abort(new AppError("STORAGE_FAILED"));
+      throw new AppError("STORAGE_FAILED", { cause: error });
+    }
+  }
+
   private change<T>(mutate: (next: GatewayState) => T | Promise<T>): Promise<T> {
     const operation = this.writes.then(async () => {
       if (this.storageFailed) throw new AppError("STORAGE_FAILED");
@@ -85,24 +118,42 @@ export class GatewayQueue {
     return operation;
   }
 
-  async submit(input: unknown, idempotencyKey: string | null = null): Promise<{ job: GatewayJob; replayed: boolean }> {
+  async submit(
+    input: unknown,
+    idempotencyKey: string | null = null,
+  ): Promise<{ job: GatewayJob; replayed: boolean }> {
     this.assertAvailable();
     const submission = gatewaySubmitSchema.parse(input);
-    if (idempotencyKey !== null && !/^[\x21-\x7e]{1,128}$/u.test(idempotencyKey)) throw new AppError("INVALID_INPUT");
+    if (idempotencyKey !== null && !/^[\x21-\x7e]{1,128}$/u.test(idempotencyKey))
+      throw new AppError("INVALID_INPUT");
     const result = await this.change((next) => {
       this.assertAvailable();
-      const existing = next.jobs.find((job) => idempotencyKey !== null && job.idempotencyKey === idempotencyKey);
+      const existing = next.jobs.find(
+        (job) => idempotencyKey !== null && job.idempotencyKey === idempotencyKey,
+      );
       if (existing) {
-        if (JSON.stringify(existing.submission) !== JSON.stringify(submission)) throw new GatewayError("CONFLICT");
+        if (JSON.stringify(existing.submission) !== JSON.stringify(submission))
+          throw new GatewayError("CONFLICT");
         return { job: existing, replayed: true };
       }
-      const pending = next.jobs.filter((job) => job.status === "queued" || job.status === "running").length;
-      if (pending >= this.maxPending || next.jobs.length >= this.maxStored) throw new GatewayError("QUEUE_FULL");
+      const pending = next.jobs.filter(
+        (job) => job.status === "queued" || job.status === "running",
+      ).length;
+      if (pending >= this.maxPending || next.jobs.length >= this.maxStored)
+        throw new GatewayError("QUEUE_FULL");
       const execution = gatewayExecutionSchema.parse(this.executor.resolve(submission));
       const job: GatewayJob = {
-        id: crypto.randomUUID(), idempotencyKey, submission, execution,
-        status: "queued", createdAt: new Date().toISOString(), startedAt: null,
-        finishedAt: null, errorCode: null, cancelRequested: false, run: null,
+        id: crypto.randomUUID(),
+        idempotencyKey,
+        submission,
+        execution,
+        status: "queued",
+        createdAt: new Date().toISOString(),
+        startedAt: null,
+        finishedAt: null,
+        errorCode: null,
+        cancelRequested: false,
+        run: null,
       };
       next.jobs.push(job);
       return { job, replayed: false };
@@ -120,7 +171,15 @@ export class GatewayQueue {
 
   list(offset = 0, limit = 50): { jobs: GatewayJob[]; total: number } {
     this.assertAvailable();
-    return { jobs: structuredClone(this.state.jobs.slice().reverse().slice(offset, offset + limit)), total: this.state.jobs.length };
+    return {
+      jobs: structuredClone(
+        this.state.jobs
+          .slice()
+          .reverse()
+          .slice(offset, offset + limit),
+      ),
+      total: this.state.jobs.length,
+    };
   }
 
   async cancel(id: string): Promise<GatewayJob> {
@@ -133,23 +192,26 @@ export class GatewayQueue {
         current.errorCode = "CANCELLED";
         current.cancelRequested = true;
         current.finishedAt = new Date().toISOString();
-        await this.repository.archive(current);
+        await this.archive(current);
       } else if (current.status === "running") current.cancelRequested = true;
       return current;
     });
-    if (job.cancelRequested && this.active?.id === id) this.active.controller.abort(new AppError("CANCELLED"));
+    if (job.cancelRequested && this.active?.id === id)
+      this.active.controller.abort(new AppError("CANCELLED"));
     return job;
   }
 
   private kick(): void {
     if (!this.started || this.worker || this.closing || this.storageFailed) return;
-    this.worker = this.drain().catch(() => {
-      this.storageFailed = true;
-      this.active?.controller.abort(new AppError("STORAGE_FAILED"));
-    }).finally(() => {
-      this.worker = undefined;
-      if (this.state.jobs.some((job) => job.status === "queued")) this.kick();
-    });
+    this.worker = this.drain()
+      .catch(() => {
+        this.storageFailed = true;
+        this.active?.controller.abort(new AppError("STORAGE_FAILED"));
+      })
+      .finally(() => {
+        this.worker = undefined;
+        if (this.state.jobs.some((job) => job.status === "queued")) this.kick();
+      });
   }
 
   private async drain(): Promise<void> {
@@ -173,7 +235,13 @@ export class GatewayQueue {
       try {
         controller.signal.throwIfAborted();
         run = runSchema.parse(await this.executor.execute(claimed.execution, controller.signal));
-        if (run.status === "running" || run.instanceId !== claimed.execution.instance.id || run.profileId !== claimed.execution.instance.profileId || run.scriptId !== claimed.execution.instance.scriptId || run.version !== claimed.execution.scriptVersion)
+        if (
+          run.status === "running" ||
+          run.instanceId !== claimed.execution.instance.id ||
+          run.profileId !== claimed.execution.instance.profileId ||
+          run.scriptId !== claimed.execution.instance.scriptId ||
+          run.version !== claimed.execution.scriptVersion
+        )
           throw new AppError("INTERNAL");
         if (run.status === "succeeded" && !run.result) throw new AppError("INVALID_INPUT");
       } catch (error) {
@@ -201,7 +269,7 @@ export class GatewayQueue {
           job.errorCode = "CANCELLED";
         }
         job.finishedAt = new Date().toISOString();
-        await this.repository.archive(job);
+        await this.archive(job);
       });
       this.active = undefined;
       if (busy && !this.closing) await new Promise((resolve) => setTimeout(resolve, 200));
