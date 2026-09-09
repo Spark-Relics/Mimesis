@@ -61,6 +61,8 @@ export class JsonWorkspaceRepository implements WorkspaceRepository {
   async load(): Promise<StoredState | undefined> {
     try {
       const input: unknown = JSON.parse(await readFile(this.file, "utf8"));
+      const current = stateSchema.safeParse(input);
+      if (current.success) return current.data;
       const legacy = legacyStateSchema.safeParse(input);
       if (legacy.success) {
         const now = new Date().toISOString();

@@ -157,6 +157,9 @@ importers:
       '@clawler/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@clawler/gateway':
+        specifier: workspace:*
+        version: link:../../packages/gateway
       '@clawler/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
@@ -199,6 +202,12 @@ importers:
       zod:
         specifier: 4.5.4
         version: 4.5.4
+
+  packages/gateway:
+    dependencies:
+      '@clawler/contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
   packages/i18n:
     dependencies:

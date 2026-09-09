@@ -9,6 +9,7 @@
   "devDependencies": {
     "@clawler/browser-host": "workspace:*",
     "@clawler/contracts": "workspace:*",
+    "@clawler/gateway": "workspace:*",
     "@clawler/i18n": "workspace:*",
     "@clawler/script-registry": "workspace:*",
     "@clawler/storage": "workspace:*",

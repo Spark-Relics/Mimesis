@@ -3,6 +3,8 @@ import {
   AppError,
   type AutomationInstance,
   type DesktopRequest,
+  type GatewayExecution,
+  type GatewaySubmission,
   IPC,
   type Profile,
   type Run,
@@ -22,6 +24,7 @@ export class WorkspaceService {
   private state: StoredState;
   private mutationPending = false;
   private storageFailed = false;
+  private pendingRunSave: Promise<void> = Promise.resolve();
 
   private constructor(
     private readonly window: BrowserWindow,
@@ -85,14 +88,71 @@ export class WorkspaceService {
 
   private recordRun(run: Run): void {
     this.state.runs = [run, ...this.state.runs.filter((entry) => entry.id !== run.id)].slice(0, 50);
-    void this.repository.save(this.state).catch(() => {
+    this.pendingRunSave = this.repository.save(this.state);
+    void this.pendingRunSave.catch(() => {
       this.storageFailed = true;
     });
     if (!this.window.isDestroyed()) this.window.webContents.send(IPC.runChanged, run);
   }
 
   private assertIdle(): void {
+    if (this.storageFailed) throw new AppError("STORAGE_FAILED");
     if (this.runner.busy || this.mutationPending) throw new AppError("BUSY");
+  }
+
+  listInstances(): AutomationInstance[] {
+    return structuredClone(this.state.instances);
+  }
+
+  resolve(submission: GatewaySubmission): GatewayExecution {
+    if (this.storageFailed) throw new AppError("STORAGE_FAILED");
+    const instance = this.state.instances.find((entry) => entry.id === submission.instanceId);
+    if (!instance) throw new AppError("NOT_FOUND");
+    if (!instance.enabled) throw new AppError("FORBIDDEN");
+    const script = this.registry.get(instance.scriptId);
+    return {
+      instance: { ...instance, targetUrl: validateNavigationUrl(submission.targetUrl ?? instance.targetUrl) },
+      scriptVersion: script.manifest.version,
+    };
+  }
+
+  async execute(execution: GatewayExecution, signal: AbortSignal): Promise<Run> {
+    this.assertIdle();
+    signal.throwIfAborted();
+    const { instance } = execution;
+    const current = this.state.instances.find((entry) => entry.id === instance.id);
+    if (!current) throw new AppError("NOT_FOUND");
+    if (!current.enabled) throw new AppError("FORBIDDEN");
+    const profile = this.state.profiles.find((entry) => entry.id === instance.profileId);
+    if (!profile) throw new AppError("NOT_FOUND");
+    const script = this.registry.get(instance.scriptId);
+    if (script.manifest.version !== execution.scriptVersion) throw new AppError("INVALID_INPUT");
+    this.host.selectProfile(profile);
+    let runId: string | undefined;
+    let unsubscribe = () => {};
+    const abort = () => {
+      if (runId && this.runner.busy) this.runner.cancel(runId);
+    };
+    try {
+      const completed = new Promise<Run>((resolveRun) => {
+        unsubscribe = this.runner.subscribe((run) => {
+          if (run.id === runId && run.status !== "running") resolveRun(run);
+        });
+      });
+      runId = this.runner.start(script, { url: instance.targetUrl }, profile.id, instance.id).id;
+      signal.addEventListener("abort", abort, { once: true });
+      if (signal.aborted) abort();
+      const run = await completed;
+      await this.pendingRunSave;
+      return run;
+    } finally {
+      unsubscribe();
+      signal.removeEventListener("abort", abort);
+    }
+  }
+
+  async flush(): Promise<void> {
+    await this.pendingRunSave;
   }
 
   private async updateState(next: StoredState): Promise<void> {

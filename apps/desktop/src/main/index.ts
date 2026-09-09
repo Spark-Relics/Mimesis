@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { IPC, type RpcResult, requestSchema, toErrorCode } from "@clawler/contracts";
+import { FileGatewayRepository, GatewayQueue, GatewayServer, gatewayConfigFromEnv } from "@clawler/gateway";
 import { JsonWorkspaceRepository } from "@clawler/storage";
 import { app, BrowserWindow, ipcMain, protocol, session } from "electron";
 import { assertTrustedSender, resolveAssetPath } from "./security";
@@ -12,6 +13,8 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 if (process.env.CLAWLER_DATA_DIR) app.setPath("userData", process.env.CLAWLER_DATA_DIR);
+const ownsWorkspace = app.requestSingleInstanceLock();
+if (!ownsWorkspace) app.quit();
 
 const devUrl = process.env.CLAWLER_RENDERER_URL;
 const mimeTypes: Record<string, string> = {
@@ -23,6 +26,10 @@ const mimeTypes: Record<string, string> = {
 };
 let mainWindow: BrowserWindow | undefined;
 let service: WorkspaceService | undefined;
+let gatewayQueue: GatewayQueue | undefined;
+let gatewayServer: GatewayServer | undefined;
+let shuttingDown = false;
+let shutdownComplete = false;
 
 async function createWindow(): Promise<void> {
   const window = new BrowserWindow({
@@ -47,6 +54,15 @@ async function createWindow(): Promise<void> {
   window.webContents.on("will-navigate", (event) => event.preventDefault());
   const repository = new JsonWorkspaceRepository(join(app.getPath("userData"), "workspace.json"));
   service = await WorkspaceService.create(window, repository);
+  const gatewayConfig = gatewayConfigFromEnv(process.env);
+  if (gatewayConfig) {
+    gatewayQueue = await GatewayQueue.open(
+      new FileGatewayRepository(join(app.getPath("userData"), "runtime")), service,
+    );
+    gatewayServer = await GatewayServer.listen(gatewayConfig, gatewayQueue, () => service?.listInstances() ?? []);
+    gatewayQueue.start();
+    console.info(`Gateway listening at http://127.0.0.1:${gatewayServer.port}`);
+  }
   ipcMain.removeHandler(IPC.request);
   ipcMain.handle(IPC.request, async (event, payload: unknown): Promise<RpcResult<unknown>> => {
     try {
@@ -66,6 +82,12 @@ async function createWindow(): Promise<void> {
     service = undefined;
     mainWindow = undefined;
   });
+  window.on("close", (event) => {
+    if (gatewayQueue && !shutdownComplete) {
+      event.preventDefault();
+      app.quit();
+    }
+  });
   if (devUrl) await window.loadURL(devUrl);
   else await window.loadURL("clawler-app://ui/index.html");
   if (shouldShow && !window.isVisible()) window.show();
@@ -74,6 +96,7 @@ async function createWindow(): Promise<void> {
 void app
   .whenReady()
   .then(async () => {
+    if (!ownsWorkspace) return;
     session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) =>
       callback(false),
     );
@@ -106,4 +129,23 @@ void app
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
+});
+
+app.on("before-quit", (event) => {
+  if (shutdownComplete || !ownsWorkspace) return;
+  event.preventDefault();
+  if (shuttingDown) return;
+  shuttingDown = true;
+  void (async () => {
+    try {
+      await gatewayQueue?.close();
+      await gatewayServer?.close();
+      await service?.flush();
+    } catch (error) {
+      console.error("Application shutdown failed", error);
+    } finally {
+      shutdownComplete = true;
+      app.quit();
+    }
+  })();
 });
