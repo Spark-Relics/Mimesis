@@ -1,0 +1,14 @@
+{
+  "name": "@clawler/script-registry",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./sample-source": "./src/page-inspector.ts?raw"
+  },
+  "dependencies": {
+    "@clawler/contracts": "workspace:*",
+    "@clawler/script-sdk": "workspace:*"
+  }
+}

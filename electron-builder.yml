@@ -1,0 +1,15 @@
+appId: dev.clawler.desktop
+productName: Clawler
+directories:
+  app: apps/desktop
+  output: release
+files:
+  - dist/**/*
+  - package.json
+asar: true
+win:
+  target: nsis
+mac:
+  target: dmg
+linux:
+  target: AppImage

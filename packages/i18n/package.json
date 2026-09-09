@@ -1,0 +1,17 @@
+{
+  "name": "@clawler/i18n",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./resources": "./src/resources.ts"
+  },
+  "dependencies": {
+    "i18next": "26.4.2",
+    "react-i18next": "17.0.13"
+  },
+  "peerDependencies": {
+    "react": "19.2.8"
+  }
+}

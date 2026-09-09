@@ -1,0 +1,11 @@
+flowchart LR
+    author["用户编写或录制"] --> draft["可编辑脚本草稿"]
+    helper["可选 AI 辅助"] -.-> draft
+    draft --> debug["内置浏览器调试与测试"]
+    debug --> version["发布固定版本"]
+    version --> runner["脚本运行器"]
+    trigger["手动、定时或 API"] --> runner
+    runner --> browser["绑定账号的内置浏览器"]
+    browser --> result["校验并交付结果"]
+    failure["失败日志与页面证据"] --> draft
+    runner -->|"失败时"| failure

@@ -1,0 +1,216 @@
+:root {
+  font-family: Inter, "Segoe UI Variable", "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  color: #172033;
+  background: #f3f5f9;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --canvas: #f3f5f9;
+  --ink: #172033;
+  --muted: #697386;
+  --line: #e3e7ee;
+  --line-strong: #d5dbe6;
+  --accent: #24262a;
+  --accent-hover: #0f1012;
+  --accent-soft: #eceef1;
+  --success: #4a5058;
+  --sidebar: #111214;
+  --shadow-sm: 0 1px 2px rgb(23 32 51 / 4%), 0 3px 10px rgb(23 32 51 / 3%);
+  --shadow-md: 0 12px 30px rgb(23 32 51 / 7%);
+}
+
+* {
+  box-sizing: border-box;
+  scrollbar-width: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+body {
+  margin: 0;
+}
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  -webkit-app-region: no-drag;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+:focus-visible {
+  outline: 2px solid rgb(39 42 47 / 45%);
+  outline-offset: 2px;
+}
+button svg {
+  flex-shrink: 0;
+}
+
+.button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 620;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: 0 1px 1px rgb(23 32 51 / 4%);
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+.button:not(:disabled):active {
+  transform: translateY(1px);
+}
+.button--primary {
+  color: white;
+  border-color: var(--accent);
+  background: linear-gradient(180deg, #36383d 0%, var(--accent) 100%);
+  box-shadow:
+    0 5px 14px rgb(22 24 27 / 20%),
+    inset 0 1px rgb(255 255 255 / 16%);
+}
+.button--primary:hover {
+  border-color: var(--accent-hover);
+  background: linear-gradient(180deg, #27292d 0%, var(--accent-hover) 100%);
+  box-shadow:
+    0 7px 18px rgb(15 16 18 / 24%),
+    inset 0 1px rgb(255 255 255 / 14%);
+}
+.button--secondary {
+  color: #344056;
+  background: #fff;
+}
+.button--secondary:hover {
+  border-color: #c8cfdb;
+  background: #f8f9fc;
+}
+.button--ghost {
+  color: #727d91;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+.button--ghost:hover {
+  color: #303a4d;
+  background: #edf0f5;
+}
+.button--danger {
+  color: #b33a47;
+  border-color: #f2cdd2;
+  background: #fff2f3;
+  box-shadow: none;
+}
+
+.badge {
+  display: inline-flex;
+  min-height: 22px;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.35;
+  font-weight: 620;
+  white-space: nowrap;
+}
+.badge--neutral {
+  color: #687386;
+  background: #f0f2f6;
+}
+.badge--success {
+  color: #3e444c;
+  background: #e9ebee;
+}
+.badge--accent {
+  color: #303338;
+  background: var(--accent-soft);
+}
+.badge--danger {
+  color: #b13c48;
+  background: #fff0f2;
+}
+
+.panel {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.empty-state {
+  display: flex;
+  min-height: 166px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 30px;
+  color: #949daf;
+  text-align: center;
+}
+.empty-state > svg {
+  padding: 9px;
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  color: #4d525a;
+  background: #eceef1;
+}
+.empty-state strong {
+  color: #3f4a5e;
+  font-size: 13px;
+  font-weight: 620;
+}
+.empty-state p {
+  max-width: 390px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+input,
+select {
+  min-width: 0;
+  padding: 9px 11px;
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  outline: none;
+  background: white;
+  box-shadow: inset 0 1px 2px rgb(23 32 51 / 2%);
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+}
+input:hover,
+select:hover {
+  border-color: #c5ccda;
+}
+input:focus,
+select:focus {
+  border-color: #777d86;
+  box-shadow: 0 0 0 3px rgb(39 42 47 / 10%);
+}
+input::placeholder {
+  color: #a0a8b7;
+}

@@ -1,0 +1,21 @@
+{
+  "name": "@clawler/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Script-first browser automation workbench",
+  "author": "Clawler",
+  "main": "dist/main/index.cjs",
+  "devDependencies": {
+    "@clawler/browser-host": "workspace:*",
+    "@clawler/contracts": "workspace:*",
+    "@clawler/i18n": "workspace:*",
+    "@clawler/script-registry": "workspace:*",
+    "@clawler/storage": "workspace:*",
+    "@clawler/ui": "workspace:*",
+    "@clawler/workflow-core": "workspace:*",
+    "lucide-react": "1.41.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  }
+}

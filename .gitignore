@@ -1,0 +1,13 @@
+node_modules/
+package-lock.json
+.cache/
+dist/
+release/
+test-results/
+playwright-report/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+*.log

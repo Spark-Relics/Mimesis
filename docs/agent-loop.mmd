@@ -1,0 +1,11 @@
+flowchart LR
+    goal["目标与输入"] --> plan["规划或加载已验证流程"]
+    plan --> observe["观察当前页面"]
+    observe --> decide["选择动作"]
+    decide --> authorize["内核与 Host 校验权限、预算、控制权"]
+    authorize --> execute["操作同一内置页面"]
+    execute --> verify["检查页面变化与结果"]
+    verify -->|"继续"| observe
+    verify -->|"达到成功条件"| output["结构化结果与证据"]
+    verify -->|"无法继续"| human["暂停并转人工"]
+    human -->|"交回控制权后重新观察"| observe

@@ -1,0 +1,30 @@
+flowchart TB
+    person["用户"] --> workbench["桌面工作台：脚本、浏览器、任务、账号"]
+    workbench <--> studio["脚本工作室：编辑、录制、调试、测试"]
+    studio -.-> agent["可选 AI：编写脚本、分析页面、修复建议"]
+    agent -.-> studio
+    studio --> registry["脚本仓库：源码、参数、选择器、不可变版本"]
+    registry --> kernel
+    caller["外部系统"] <--> gateway["服务网关：鉴权、任务提交、状态、结果"]
+    workbench <--> kernel["任务内核：队列、状态机、检查点、预算"]
+    gateway <--> kernel
+    kernel -.->|"仅显式 AI 节点"| agent
+    agent -.-> modelGateway["可选模型适配层"]
+    modelGateway -.-> models["云端或本地模型"]
+    kernel <--> runner["脚本运行器：SDK、步骤执行、状态与取消"]
+    runner <--> host["Browser Host：权限校验、动作执行、观测"]
+    runner <--> sandbox["脚本沙盒：受限代码与资源配额"]
+    host <--> profiles["账号池：Profile、会话、租约、健康状态"]
+    profiles <--> vault["凭据保险箱：密钥引用、加密存储"]
+    host <--> pages["Electron 内置页面：WebContentsView 与 Chromium"]
+    person <-->|"人工接管同一页面"| pages
+    pages <--> sites["目标网站"]
+    kernel --> pipeline["数据管道：提取、校验、转换、去重"]
+    pipeline <--> sandbox
+    pipeline --> results["结果仓库：结构化数据与产物"]
+    gateway -->|"读取结果"| results
+    results --> delivery["交付模块：持久化发件箱与重试"]
+    delivery -->|"Webhook 或连接器"| caller
+    kernel <--> runStore["运行库：流程版本、任务状态、事件、检查点"]
+    kernel --> artifacts["证据文件：截图、下载、动作记录"]
+    relay["可选远程中继"] -.-> gateway

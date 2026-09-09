@@ -1,0 +1,11 @@
+packages:
+  - apps/*
+  - packages/*
+
+saveExact: true
+strictPeerDependencies: true
+storeDir: .cache/pnpm-store
+cacheDir: .cache/pnpm-cache
+allowBuilds:
+  electron: true
+  electron-winstaller: true

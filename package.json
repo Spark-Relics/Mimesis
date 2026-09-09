@@ -1,0 +1,41 @@
+{
+  "name": "clawler-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.19.0",
+    "pnpm": ">=12.3.4"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "vite --config apps/desktop/vite.renderer.config.ts",
+    "build": "node scripts/build.mjs",
+    "start": "node scripts/start.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "node scripts/lint.mjs",
+    "format": "biome check --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "check": "node scripts/check.mjs",
+    "package": "electron-builder --config electron-builder.yml --dir",
+    "versions:check": "node scripts/check-versions.mjs"
+  },
+  "devDependencies": {
+    "@babel/parser": "8.0.4",
+    "@biomejs/biome": "2.5.12",
+    "@playwright/test": "1.63.0",
+    "@types/node": "26.4.1",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "@vitejs/plugin-react": "6.1.1",
+    "electron": "44.2.0",
+    "electron-builder": "26.15.3",
+    "typescript": "7.0.2",
+    "vite": "8.2.2",
+    "vitest": "5.0.0",
+    "@clawler/contracts": "workspace:*"
+  },
+  "packageManager": "pnpm@12.3.4"
+}
