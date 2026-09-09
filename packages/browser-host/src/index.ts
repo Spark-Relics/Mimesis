@@ -9,7 +9,9 @@ import {
 } from "@clawler/contracts";
 import type { BrowserPort } from "@clawler/script-sdk";
 import { type BrowserWindow, session, WebContentsView } from "electron";
+import { BrowserAutomation } from "./automation";
 import { demoPage } from "./demo-page";
+import { BrowserRecorder } from "./recorder";
 
 const inspectionExpression = `(() => ({
   title: document.title,
@@ -25,6 +27,11 @@ const configuredProfiles = new Set<string>();
 
 /** Privileged adapter; the renderer only receives validated, narrow browser operations. */
 export class BrowserHost implements BrowserPort {
+  readonly automation = new BrowserAutomation(() => this.getContents());
+  readonly recorder = new BrowserRecorder();
+  async startRecording(): Promise<void> {
+    await this.recorder.start(this.getContents());
+  }
   private readonly views = new Map<string, WebContentsView>();
   private current: WebContentsView | undefined;
   private bounds: BrowserBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
@@ -57,6 +64,7 @@ export class BrowserHost implements BrowserPort {
           sandbox: true,
           contextIsolation: true,
           nodeIntegration: false,
+          backgroundThrottling: false,
         },
       });
       const contents = view.webContents;
@@ -88,11 +96,17 @@ export class BrowserHost implements BrowserPort {
     const { width: windowWidth, height: windowHeight } = this.window.getContentBounds();
     const x = Math.min(Math.round(bounds.x), windowWidth);
     const y = Math.min(Math.round(bounds.y), windowHeight);
+    let width = Math.max(0, Math.min(Math.round(bounds.width), windowWidth - x));
+    let height = Math.max(0, Math.min(Math.round(bounds.height), windowHeight - y));
+    if (!bounds.visible) {
+      width = 1024;
+      height = 768;
+    }
     this.current.setBounds({
       x,
       y,
-      width: Math.max(0, Math.min(Math.round(bounds.width), windowWidth - x)),
-      height: Math.max(0, Math.min(Math.round(bounds.height), windowHeight - y)),
+      width,
+      height,
     });
     this.current.setVisible(bounds.visible && bounds.width > 0 && bounds.height > 0);
   }
@@ -132,6 +146,7 @@ export class BrowserHost implements BrowserPort {
   }
 
   dispose(): void {
+    if (this.recorder.active) void this.recorder.stop();
     for (const view of this.views.values()) {
       if (!view.webContents.isDestroyed()) view.webContents.close();
     }

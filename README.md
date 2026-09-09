@@ -6,14 +6,14 @@ Mimesis is a local-first, script-first browser automation desktop runtime built 
 
 AI is an optional authoring and recovery layer. A published script should continue to run without a model unless it explicitly declares an AI step.
 
-> Mimesis is currently an early foundation release. The desktop shell and first execution path work; the public API, general-purpose script sandbox, account vault, scheduler, delivery connectors, and Agent runtime are still planned.
+> Mimesis is currently an early foundation release. The desktop execution path and authenticated local HTTP gateway work, including a durable queue and result archives. General-purpose script sandboxing, the account vault, concurrent scheduling, delivery connectors, and Agent runtime are still planned.
 
 ## Product model
 
 - **Instance-oriented:** each automation instance owns its script, browser profile, target, configuration, and run history.
 - **Real browser runtime:** automation and manual takeover share an embedded Chromium page.
 - **Isolated profiles:** Electron session partitions keep cookies and site storage separated by profile.
-- **Script-first:** deterministic TypeScript or JavaScript remains the primary automation asset.
+- **Workflow-first:** schema-validated JSON collection recipes are executable today; a general TypeScript / JavaScript sandbox is planned.
 - **AI-optional:** AI can help write, inspect, and repair scripts without becoming a hidden runtime dependency.
 - **Structured delivery:** runs are designed to return validated data that can later be exposed through APIs, webhooks, or connectors.
 
@@ -26,6 +26,8 @@ AI is an optional authoring and recovery layer. A published script should contin
 - A bundled page-inspector script for navigation and structured DOM extraction
 - Run lifecycle events, cancellation, timeout handling, and the latest 50 run records
 - Atomic local JSON persistence with schema validation and migration
+- Authenticated local HTTP gateway with idempotent submission, queuing, cancellation, and restart recovery
+- Per-instance gateway job archives and cleaned JSON, CSV, and NDJSON exports
 - Simplified Chinese and English UI resources
 - Narrow preload bridge, validated IPC contracts, renderer sandboxing, and navigation guards
 
@@ -43,12 +45,16 @@ flowchart LR
     Host --> Profiles[Isolated profiles]
     Host --> Chromium[Embedded Chromium pages]
     Agent[Optional AI Agent layer] -. author / inspect / repair .-> Registry
-    Gateway[Planned API and delivery gateway] -. submit / return results .-> Workspace
+    Gateway[Local HTTP collection gateway] -->|submit / return results| Workspace
 ```
 
 The renderer never receives direct Node.js, filesystem, session, or unrestricted browser access. Privileged browser resources stay in the Electron main process and are exposed through small, validated contracts.
 
 More detail is available in [the architecture document](docs/architecture.md) and [the script-system design](docs/script-system.md).
+
+See [the local gateway guide](docs/gateway.md) for configuration, API examples, storage layout, and current capacity limits.
+
+UI changes follow the [V3 collection workspace design](docs/design/workflow-v3/design.md), generated before implementation. Horizontal navigation and a single full-width workspace replace the V2 sidebar composition. Native recording, editable initialization actions, field extraction, pagination loops and input parameters now execute through the same desktop and gateway runtime. See the [collection guide](docs/collection-workflows.md) for the verified two-page Quotes experiment and remaining limitations.
 
 ## Technology
 
@@ -131,7 +137,7 @@ The current profile partition provides browser-session isolation. It is not a vi
 - General-purpose versioned script projects and restricted execution sandbox
 - Account pool, profile leases, credential vault, and controlled cookie import/export
 - Schedules, queues, retries, checkpoints, and richer run evidence
-- Local API, remote gateway, webhooks, and output connectors
+- Remote gateway, webhooks, and output connectors
 - AI Agent adapters for script authoring, page observation, diagnosis, and bounded repair
 - Permission manifests, budgets, audit events, and approval policies
 - Cross-platform packaging and update delivery

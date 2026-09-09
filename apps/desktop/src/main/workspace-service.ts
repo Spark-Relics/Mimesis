@@ -11,7 +11,7 @@ import {
   validateNavigationUrl,
   type WorkspaceSnapshot,
 } from "@clawler/contracts";
-import { ScriptRegistry } from "@clawler/script-registry";
+import { resolveWorkflow, ScriptRegistry } from "@clawler/script-registry";
 import publishedSource from "@clawler/script-registry/sample-source";
 import type { StoredState, WorkspaceRepository } from "@clawler/storage";
 import { TaskRunner } from "@clawler/workflow-core";
@@ -110,17 +110,20 @@ export class WorkspaceService {
     if (!instance) throw new AppError("NOT_FOUND");
     if (!instance.enabled) throw new AppError("FORBIDDEN");
     const script = this.registry.get(instance.scriptId);
+    if (instance.workflow) resolveWorkflow(instance.workflow, submission.parameters);
     return {
       instance: {
         ...instance,
         targetUrl: validateNavigationUrl(submission.targetUrl ?? instance.targetUrl),
       },
       scriptVersion: script.manifest.version,
+      ...(submission.parameters && { parameters: submission.parameters }),
     };
   }
 
   async execute(execution: GatewayExecution, signal: AbortSignal): Promise<Run> {
     this.assertIdle();
+    if (this.host.recorder.active) throw new AppError("BUSY");
     signal.throwIfAborted();
     const { instance } = execution;
     const current = this.state.instances.find((entry) => entry.id === instance.id);
@@ -139,10 +142,22 @@ export class WorkspaceService {
     try {
       const completed = new Promise<Run>((resolveRun) => {
         unsubscribe = this.runner.subscribe((run) => {
-          if (run.id === runId && run.status !== "running") resolveRun(run);
+          if (run.id === runId && run.status !== "running") {
+            runId = undefined;
+            resolveRun(run);
+          }
         });
       });
-      runId = this.runner.start(script, { url: instance.targetUrl }, profile.id, instance.id).id;
+      runId = this.runner.start(
+        script,
+        {
+          url: instance.targetUrl,
+          ...(instance.workflow && { workflow: instance.workflow }),
+          ...(execution.parameters && { parameters: execution.parameters }),
+        },
+        profile.id,
+        instance.id,
+      ).id;
       signal.addEventListener("abort", abort, { once: true });
       if (signal.aborted) abort();
       const run = await completed;
@@ -171,6 +186,42 @@ export class WorkspaceService {
 
   async dispatch(request: DesktopRequest): Promise<unknown> {
     switch (request.method) {
+      case "recording.start":
+        this.assertIdle();
+        this.mutationPending = true;
+        try {
+          await this.host.startRecording();
+        } finally {
+          this.mutationPending = false;
+        }
+        return null;
+      case "recording.stop":
+        return this.host.recorder.stop();
+      case "workflow.save": {
+        this.assertIdle();
+        if (this.host.recorder.active) throw new AppError("BUSY");
+        const current = this.state.instances.find((instance) => instance.id === request.instanceId);
+        if (!current) throw new AppError("NOT_FOUND");
+        const profileId = request.input?.profileId ?? current.profileId;
+        if (!this.state.profiles.some((profile) => profile.id === profileId))
+          throw new AppError("NOT_FOUND");
+        const instance = {
+          ...current,
+          ...request.input,
+          targetUrl: validateNavigationUrl(request.input?.targetUrl ?? current.targetUrl),
+          scriptId: "collection-workflow",
+          workflow: request.workflow,
+          updatedAt: new Date().toISOString(),
+        };
+        await this.updateState({
+          ...this.state,
+          instances: this.state.instances.map((entry) => {
+            if (entry.id === instance.id) return instance;
+            return entry;
+          }),
+        });
+        return instance;
+      }
       case "workspace.get": {
         if (this.storageFailed) throw new AppError("STORAGE_FAILED");
         return {
@@ -197,6 +248,7 @@ export class WorkspaceService {
       }
       case "profiles.select": {
         this.assertIdle();
+        if (this.host.recorder.active) throw new AppError("BUSY");
         if (!this.state.profiles.some((profile) => profile.id === request.id))
           throw new AppError("NOT_FOUND");
         await this.updateState({ ...this.state, selectedProfileId: request.id });
@@ -269,16 +321,22 @@ export class WorkspaceService {
       }
       case "runs.start": {
         this.assertIdle();
+        if (this.host.recorder.active) throw new AppError("BUSY");
         const instance = this.state.instances.find((entry) => entry.id === request.instanceId);
         if (!instance) throw new AppError("NOT_FOUND");
         if (!instance.enabled) throw new AppError("FORBIDDEN");
         const profile = this.state.profiles.find((entry) => entry.id === instance.profileId);
         if (!profile) throw new AppError("NOT_FOUND");
         const url = validateNavigationUrl(instance.targetUrl);
+        if (instance.workflow) resolveWorkflow(instance.workflow, request.parameters);
         this.host.selectProfile(profile);
         return this.runner.start(
           this.registry.get(instance.scriptId),
-          { url },
+          {
+            url,
+            ...(instance.workflow && { workflow: instance.workflow }),
+            ...(request.parameters && { parameters: request.parameters }),
+          },
           instance.profileId,
           instance.id,
         );

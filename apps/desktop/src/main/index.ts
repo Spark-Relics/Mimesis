@@ -44,7 +44,7 @@ async function createWindow(): Promise<void> {
     minHeight: 760,
     show: false,
     backgroundColor: "#f5f5f2",
-    title: "Clawler",
+    title: "Mimesis",
     frame: false,
     autoHideMenuBar: true,
     webPreferences: {

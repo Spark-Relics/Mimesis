@@ -1,0 +1,430 @@
+/* biome-ignore-all lint/style/noDescendingSpecificity: Independent component trees and intentional overrides of legacy styles. */
+/* Workflow V3: one continuous workspace, with horizontal navigation. */
+.enterprise-shell {
+  flex-direction: column;
+}
+.workspace-topnav {
+  display: flex;
+  align-items: center;
+  gap: 38px;
+  padding: 0 32px;
+  height: 68px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+  -webkit-app-region: drag;
+}
+.workspace-topnav .brand {
+  padding: 0;
+  gap: 10px;
+}
+.workspace-topnav .brand strong {
+  color: var(--ink);
+  font-size: 19px;
+}
+.workspace-topnav .brand small {
+  display: none;
+}
+.workspace-topnav .brand-mark {
+  background: #187b66;
+  border: 0;
+  box-shadow: none;
+  border-radius: 8px;
+}
+.workspace-topnav .workspace-nav {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 0;
+  gap: 6px;
+}
+.workspace-topnav .nav-item {
+  color: var(--muted);
+  font-size: 13px;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 5px;
+}
+.workspace-topnav .nav-item.is-active {
+  color: #146c59;
+  background: #edf5f1;
+  box-shadow: none;
+}
+.workspace-topnav .nav-item.is-active::before {
+  display: none;
+}
+.topnav-runtime {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.enterprise-shell .workspace-shell {
+  min-height: 0;
+  width: 100%;
+}
+.enterprise-shell .topbar {
+  height: 34px;
+  min-height: 34px;
+  padding-left: 40px;
+}
+.enterprise-shell .main-content {
+  padding: 20px 40px 48px;
+}
+.enterprise-shell .main-content > div {
+  max-width: 1260px;
+  margin-right: auto;
+  margin-left: auto;
+}
+.enterprise-shell .instance-detail-content {
+  min-height: 0;
+  overflow: visible;
+}
+.enterprise-shell .instance-detail-header {
+  margin-bottom: 24px;
+}
+.enterprise-shell .instance-detail-title h1 {
+  font-size: 26px;
+}
+.enterprise-shell .instance-detail-title p {
+  max-width: none;
+  font-size: 12px;
+  margin-top: 8px;
+}
+.enterprise-shell .instance-tabs {
+  gap: 28px;
+  padding: 0;
+  margin-bottom: 22px;
+}
+.enterprise-shell .instance-tab {
+  padding: 12px 2px;
+  border-radius: 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+}
+.enterprise-shell .instance-tab.is-active {
+  color: #187b66;
+  border-bottom-color: #187b66;
+  background: none;
+}
+.collection-browser {
+  width: 100%;
+}
+.recording-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 18px;
+}
+.recording-toolbar strong {
+  font-size: 14px;
+}
+.recording-toolbar p,
+.workflow-intro p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.recording-indicator {
+  padding: 10px 14px;
+  border-radius: 5px;
+  background: #fff0ed;
+  color: #aa3f32;
+}
+.collection-browser .browser-panel {
+  min-height: 400px;
+  overflow: hidden;
+  border-radius: 9px;
+}
+.collection-browser .browser-slot {
+  min-height: 400px;
+  height: max(400px, calc(100vh - 420px));
+}
+.collection-browser .profile-strip {
+  padding: 8px 16px;
+}
+.collection-browser .panel-heading {
+  display: none;
+}
+.collection-browser .address-bar {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 8px 14px;
+}
+.workflow-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.browser-next {
+  justify-content: space-between;
+  margin-top: 18px;
+}
+.workflow-workspace {
+  width: 100%;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 26px 30px;
+}
+.workflow-intro {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 26px;
+}
+.workflow-workspace h2 {
+  font-size: 15px;
+  font-weight: 620;
+  margin: 0;
+}
+.workflow-workspace input:not([type="checkbox"]),
+.workflow-workspace select,
+.workflow-workspace textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 8px 10px;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  font: inherit;
+}
+.workflow-workspace input[type="checkbox"] {
+  accent-color: #187b66;
+  width: 15px;
+  height: 15px;
+}
+.workflow-field {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 9px;
+  color: #42524b;
+  font-size: 12px;
+  margin-bottom: 18px;
+}
+.workflow-form-row {
+  display: flex;
+  align-items: end;
+  gap: 20px;
+}
+.workflow-form-row .short-field {
+  flex: 0 0 160px;
+}
+.workflow-section {
+  padding: 25px 0;
+  border-top: 1px solid var(--line);
+  margin-top: 18px;
+}
+.workflow-section-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.workflow-section-title > span {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border: 1px solid #d8e6de;
+  background: #f0f7f3;
+  color: #187b66;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 650;
+}
+.workflow-section-title p,
+.workflow-muted {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 7px 0 16px;
+}
+.recorded-actions {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px;
+}
+.recorded-actions li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+}
+.recorded-actions li > strong {
+  min-width: 80px;
+  font-size: 12px;
+}
+.recorded-actions li > input {
+  flex: 1;
+}
+.action-number {
+  color: var(--muted);
+  width: 22px;
+  flex-shrink: 0;
+}
+.extraction-fields {
+  margin: 10px 0 18px;
+}
+.extraction-head,
+.extraction-row {
+  display: grid;
+  grid-template-columns: 1fr 2fr 110px 50px 38px;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 9px;
+}
+.extraction-head {
+  color: var(--muted);
+  font-size: 11px;
+}
+.workflow-check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 20px;
+}
+.workflow-workspace .workflow-source {
+  min-height: 380px;
+  font:
+    12px / 1.7 Consolas,
+    monospace;
+  margin-bottom: 14px;
+  resize: vertical;
+}
+.workflow-workspace .workflow-parameters {
+  min-height: 75px;
+  font:
+    12px / 1.7 Consolas,
+    monospace;
+  resize: vertical;
+}
+.workflow-section summary,
+.workflow-api summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: #42524b;
+}
+.workflow-footer {
+  border-top: 1px solid var(--line);
+  padding-top: 22px;
+}
+.workflow-footer .button--primary {
+  margin-left: auto;
+}
+.workflow-api {
+  margin-top: 26px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+.workflow-api pre {
+  color: var(--ink);
+}
+.workflow-feedback {
+  padding: 12px 16px;
+  margin: 0 0 18px;
+  color: #146c59;
+  background: #edf5f1;
+  border: 1px solid #d9e9e0;
+  border-radius: 6px;
+  line-height: 1.7;
+}
+.workflow-error {
+  color: #aa3f32;
+  background: #fff3ef;
+  border-color: #efd6ce;
+}
+.enterprise-shell .run-result-grid {
+  display: flex;
+  flex-direction: column;
+  max-height: none;
+}
+.enterprise-shell .step-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.enterprise-shell .step-list .section-label {
+  width: 100%;
+}
+.enterprise-shell .step {
+  padding: 8px;
+  margin-bottom: 0;
+}
+.collection-table {
+  overflow: auto;
+  max-height: 460px;
+}
+.collection-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.collection-table th,
+.collection-table td {
+  text-align: left;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+  min-width: 140px;
+  overflow-wrap: anywhere;
+}
+.collection-table th {
+  position: sticky;
+  top: 0;
+  background: #f5f8f6;
+  color: #42524b;
+}
+.result-raw {
+  padding: 16px 20px;
+}
+.result-raw summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+.result-raw .result-json {
+  max-height: 420px;
+  overflow: auto;
+}
+.collection-summary {
+  padding: 16px 22px;
+  color: #187b66;
+  background: #f2f8f4;
+}
+.collection-summary p {
+  margin: 8px 0 0;
+  color: #a46420;
+}
+@media (max-width: 1100px) {
+  .workspace-topnav {
+    gap: 20px;
+    padding: 0 24px;
+  }
+  .workspace-topnav .nav-item {
+    padding: 0 9px;
+  }
+  .enterprise-shell .main-content {
+    padding: 16px 24px 36px;
+  }
+  .workflow-workspace {
+    padding: 22px;
+  }
+}

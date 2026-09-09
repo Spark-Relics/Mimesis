@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="88" viewBox="0 0 128 88" fill="none">
+  <title>Create a browser instance</title>
+  <path d="M15 74h98" stroke="#e3e8e6" stroke-width="1.5" stroke-linecap="round"/>
+  <rect x="29" y="12" width="70" height="56" rx="6" fill="#fff" stroke="#cad5d0" stroke-width="1.5"/>
+  <path d="M29 26h70M42 38h24M42 46h38M42 54h18" stroke="#cad5d0" stroke-width="1.5" stroke-linecap="round"/>
+  <circle cx="38" cy="19" r="2" fill="#187b66"/>
+  <circle cx="45" cy="19" r="2" fill="#d6dfda"/>
+  <circle cx="92" cy="61" r="13" fill="#e9f3ef" stroke="#187b66" stroke-width="1.5"/>
+  <path d="M86 61h12m-6-6v12" stroke="#187b66" stroke-width="1.5" stroke-linecap="round"/>
+</svg>

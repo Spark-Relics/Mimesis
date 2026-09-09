@@ -41,6 +41,12 @@ function csvCell(value: string): string {
 /** CSV/NDJSON use a stable row schema; JSON preserves the nested document. */
 export function serializeResult(result: DocumentSnapshot, format: ResultFormat): string {
   if (format === "json") return `${JSON.stringify(result, null, 2)}\n`;
+  if (result.records) {
+    if (format === "ndjson")
+      return `${result.records.map((row) => JSON.stringify(row)).join("\n")}\n`;
+    const columns = [...new Set(result.records.flatMap((row) => Object.keys(row)))];
+    return `${[columns.map(csvCell).join(","), ...result.records.map((row) => columns.map((key) => csvCell(row[key] ?? "")).join(","))].join("\r\n")}\r\n`;
+  }
   const rows = [
     { kind: "document", text: result.title, url: result.url },
     ...result.headings.map((text) => ({ kind: "heading", text, url: result.url })),

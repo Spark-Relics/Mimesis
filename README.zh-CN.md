@@ -6,26 +6,30 @@ Mimesis 是一个本地优先、脚本优先的 Electron 浏览器自动化桌�
 
 AI 是可选的脚本开发和故障恢复能力。除非脚本明确声明 AI 步骤，否则发布后的脚本不依赖模型也应当能够独立运行。
 
-> Mimesis 目前处于早期框架阶段。桌面外壳和第一条执行链路已经可用；公共 API、通用脚本沙盒、账号凭据保险箱、调度器、结果连接器和 Agent 运行时仍在规划中。
+> Mimesis 目前处于早期框架阶段。桌面执行链路及带鉴权的本地 HTTP 网关已可用，支持持久化队列和结果归档；通用脚本沙盒、账号凭据保险箱、高并发调度、结果连接器和 Agent 运行时仍在规划中。
 
 ## 产品模型
 
 - **以实例为中心：** 每个自动化实例拥有自己的脚本、浏览器 Profile、目标地址、配置和运行记录。
 - **真实浏览器运行时：** 自动化与人工接管操作同一个内置 Chromium 页面。
 - **Profile 隔离：** 使用 Electron Session 分区隔离不同 Profile 的 Cookie 和站点存储。
-- **脚本优先：** 确定性的 TypeScript 或 JavaScript 是主要自动化资产。
+- **流程优先：** 当前执行经过校验的 JSON 采集流程；通用 TypeScript / JavaScript 沙盒尚未实现。
 - **AI 可选：** AI 可以辅助编写、观察和修复脚本，但不会成为隐藏的运行依赖。
 - **结构化交付：** 运行结果按结构化数据设计，后续可通过 API、Webhook 或连接器提供给外部系统。
 
 ## 当前已经实现
 
-- 无边框、黑白灰 Electron 桌面界面
+- 无边框 Electron 桌面界面，顶部导航与单列工作区
 - 多个自动化实例，以及各自的配置和运行记录
 - 基于独立 Electron Session 的持久化浏览器 Profile
 - 使用 `WebContentsView` 承载内置 Chromium 页面
 - 内置页面检查脚本，可完成导航和结构化 DOM 信息提取
+- 真实点击与输入录制，可编辑顺序、等待步骤和参数占位符
+- 每个实例保存可执行 JSON 流程：初始化、字段提取、翻页循环、去重和有界停止
 - 运行状态事件、取消、超时处理，以及最近 50 条运行记录
 - 带 Schema 校验和迁移的本地 JSON 原子化存储
+- 本地 HTTP 网关：Bearer 鉴权、幂等提交、排队、取消及重启恢复
+- 按实例保存网关任务与原始结果，清洗后导出 JSON、CSV 和 NDJSON
 - 简体中文和英文界面资源
 - 收窄的 preload 桥接、IPC 参数校验、渲染进程沙盒和导航限制
 
@@ -43,12 +47,16 @@ flowchart LR
     Host --> Profiles[隔离 Profile]
     Host --> Chromium[内置 Chromium 页面]
     Agent[可选 AI Agent 层] -. 编写 / 观察 / 修复 .-> Registry
-    Gateway[规划中的 API 与交付网关] -. 提交任务 / 返回结果 .-> Workspace
+    Gateway[本地 HTTP 采集网关] -->|提交任务 / 返回结果| Workspace
 ```
 
 渲染进程不会直接获得 Node.js、文件系统、Session 或无限制的浏览器权限。高权限浏览器资源保留在 Electron 主进程中，只通过范围明确并经过校验的接口开放。
 
 详细设计参见[架构文档](docs/architecture.md)和[脚本系统设计](docs/script-system.md)。
+
+外部程序接入方式、启动配置、API 示例和当前容量限制见[本地采集网关](docs/gateway.md)。
+
+界面开发遵循[采集工作区 V3 设计](docs/design/workflow-v3/design.md)：先生成设计图，再实现顶部导航与单列工作区。V3 替代 V2 的侧栏布局。实际操作与可复用循环配置见[录制与采集指南](docs/collection-workflows.md)。
 
 ## 技术栈
 
@@ -131,7 +139,7 @@ Mimesis/
 - 通用的版本化脚本项目与受限执行沙盒
 - 账号池、Profile 租约、凭据保险箱和受控 Cookie 导入导出
 - 定时任务、队列、重试、检查点和更完整的运行证据
-- 本地 API、远程网关、Webhook 和结果连接器
+- 远程网关、Webhook 和结果连接器
 - 用于脚本编写、页面观察、故障诊断和受限修复的 AI Agent 适配层
 - 权限 Manifest、预算、审计事件和审批策略
 - 跨平台打包与自动更新

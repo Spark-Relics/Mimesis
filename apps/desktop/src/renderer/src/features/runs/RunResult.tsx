@@ -58,6 +58,17 @@ export function RunResult({ run, onCopyError }: { run: Run | undefined; onCopyEr
           </Button>
         )}
       </div>
+      {run.result?.collection && (
+        <div className="collection-summary">
+          <strong>
+            {t("flowRecordCount", {
+              count: run.result.records?.length ?? 0,
+              pages: run.result.collection.pages,
+            })}
+          </strong>
+          {run.result.collection.truncated && <p>{t("flowTruncated")}</p>}
+        </div>
+      )}
       <div className="run-result-grid">
         <div className="step-list">
           <div className="section-label">
@@ -79,9 +90,40 @@ export function RunResult({ run, onCopyError }: { run: Run | undefined; onCopyEr
             </p>
           )}
         </div>
-        <section className="result-data" aria-label={t("jsonPreview")}>
-          <pre className="result-json">{JSON.stringify(run.result, null, 2)}</pre>
-        </section>
+        {run.result?.records && (
+          <section className="collection-table" aria-label={t("results")}>
+            <table>
+              <thead>
+                <tr>
+                  {Object.keys(run.result.records[0] ?? {}).map((key) => (
+                    <th key={key}>{key}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {run.result.records.slice(0, 100).map((row) => (
+                  <tr key={JSON.stringify(row)}>
+                    {Object.entries(row).map(([key, value]) => (
+                      <td key={key}>{value}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {run.result.records.length > 100 && <p>{t("flowPreviewLimit")}</p>}
+          </section>
+        )}
+        {run.result?.records && (
+          <details className="result-raw">
+            <summary>{t("jsonPreview")}</summary>
+            <pre className="result-json">{JSON.stringify(run.result, null, 2)}</pre>
+          </details>
+        )}
+        {!run.result?.records && (
+          <section className="result-data" aria-label={t("jsonPreview")}>
+            <pre className="result-json">{JSON.stringify(run.result, null, 2)}</pre>
+          </section>
+        )}
       </div>
     </Panel>
   );

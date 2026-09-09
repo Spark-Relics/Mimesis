@@ -53,6 +53,64 @@ export const profileSchema = z.object({
 });
 export type Profile = z.infer<typeof profileSchema>;
 
+const selectorSchema = z.string().trim().min(1).max(2048);
+export const workflowActionSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("fill"),
+    selector: selectorSchema,
+    value: z.string().max(8000),
+  }),
+  z.strictObject({ kind: z.literal("click"), selector: selectorSchema }),
+  z.strictObject({ kind: z.literal("wait"), selector: selectorSchema }),
+]);
+export const extractionSchema = z
+  .strictObject({
+    items: selectorSchema,
+    fields: z
+      .array(
+        z.strictObject({
+          name: z
+            .string()
+            .regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/u)
+            .refine((name) => !["constructor", "prototype"].includes(name)),
+          selector: z.string().trim().max(2048),
+          attribute: z.enum(["text", "href", "src", "value"]),
+          required: z.boolean(),
+        }),
+      )
+      .min(1)
+      .max(20),
+  })
+  .refine((value) => new Set(value.fields.map((field) => field.name)).size === value.fields.length);
+export const collectionWorkflowSchema = z.strictObject({
+  version: z.literal(1),
+  before: z.array(workflowActionSchema).max(20),
+  extract: extractionSchema,
+  pagination: z
+    .strictObject({
+      next: selectorSchema,
+      maxPages: z.number().int().min(1).max(50),
+    })
+    .nullable(),
+  waitTimeoutMs: z.number().int().min(100).max(15_000),
+  maxRecords: z.number().int().min(1).max(2000),
+});
+export type CollectionWorkflow = z.infer<typeof collectionWorkflowSchema>;
+export type WorkflowAction = z.infer<typeof workflowActionSchema>;
+export const recordingSchema = z.object({
+  url: z.string(),
+  actions: z.array(workflowActionSchema).max(20),
+  skipped: z.number().int().min(0),
+});
+export type Recording = z.infer<typeof recordingSchema>;
+export type Extraction = z.infer<typeof extractionSchema>;
+export const workflowParametersSchema = z
+  .record(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/u), z.string().max(8000))
+  .refine((params) => Object.keys(params).length <= 20);
+export const collectionRecordsSchema = z
+  .array(z.record(z.string(), z.string().max(16_000)))
+  .max(2000);
+
 export const automationInstanceSchema = z.object({
   id: z.string().uuid(),
   name: z.string().trim().min(1).max(64),
@@ -62,6 +120,7 @@ export const automationInstanceSchema = z.object({
   enabled: z.boolean(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+  workflow: collectionWorkflowSchema.optional(),
 });
 export type AutomationInstance = z.infer<typeof automationInstanceSchema>;
 
@@ -78,11 +137,25 @@ export const documentSchema = z.object({
   url: z.string(),
   headings: z.array(z.string()),
   links: z.array(z.object({ text: z.string(), href: z.string() })),
+  records: collectionRecordsSchema.optional(),
+  collection: z
+    .object({
+      pages: z.number().int().min(1),
+      stopReason: z.enum([
+        "single-page",
+        "next-unavailable",
+        "no-new-records",
+        "page-limit",
+        "record-limit",
+      ]),
+      truncated: z.boolean(),
+    })
+    .optional(),
 });
 export type DocumentSnapshot = z.infer<typeof documentSchema>;
 
 export const runStatusSchema = z.enum(["running", "succeeded", "failed", "cancelled"]);
-export const stepKindSchema = z.enum(["navigate", "inspect"]);
+export const stepKindSchema = z.enum(["navigate", "inspect", "fill", "click", "wait", "extract"]);
 export const stepSchema = z.object({
   id: z.string(),
   kind: stepKindSchema,
@@ -110,6 +183,7 @@ export type Run = z.infer<typeof runSchema>;
 export const gatewaySubmitSchema = z.strictObject({
   instanceId: z.string().uuid(),
   targetUrl: z.string().min(1).max(4096).optional(),
+  parameters: workflowParametersSchema.optional(),
   cleaning: z
     .strictObject({
       trim: z.boolean().default(true),
@@ -121,6 +195,7 @@ export type GatewaySubmission = z.infer<typeof gatewaySubmitSchema>;
 export const gatewayExecutionSchema = z.object({
   instance: automationInstanceSchema,
   scriptVersion: z.string().min(1),
+  parameters: workflowParametersSchema.optional(),
 });
 export type GatewayExecution = z.infer<typeof gatewayExecutionSchema>;
 export const gatewayJobSchema = z.object({
@@ -199,16 +274,25 @@ export const requestSchema = z.discriminatedUnion("method", [
   z.object({ method: z.literal("profiles.select"), id: z.string().uuid() }),
   z.object({ method: z.literal("instances.create"), name: z.string().trim().min(1).max(64) }),
   z.object({
+    method: z.literal("workflow.save"),
+    instanceId: z.string().uuid(),
+    workflow: collectionWorkflowSchema,
+    input: instanceUpdateSchema.optional(),
+  }),
+  z.object({
     method: z.literal("instances.update"),
     id: z.string().uuid(),
     input: instanceUpdateSchema,
   }),
   z.object({ method: z.literal("browser.bounds"), bounds: boundsSchema }),
   z.object({ method: z.literal("browser.navigate"), url: z.string().min(1).max(4096) }),
+  z.object({ method: z.literal("recording.start") }),
+  z.object({ method: z.literal("recording.stop") }),
   z.object({ method: z.literal("window.control"), action: windowControlSchema }),
   z.object({
     method: z.literal("runs.start"),
     instanceId: z.string().uuid(),
+    parameters: workflowParametersSchema.optional(),
   }),
   z.object({ method: z.literal("runs.cancel"), id: z.string().uuid() }),
 ]);
@@ -222,10 +306,17 @@ export interface DesktopBridge {
   selectProfile(id: string): Promise<void>;
   createInstance(name: string): Promise<AutomationInstance>;
   updateInstance(id: string, input: InstanceUpdate): Promise<AutomationInstance>;
+  saveWorkflow(
+    instanceId: string,
+    workflow: CollectionWorkflow,
+    input?: InstanceUpdate,
+  ): Promise<AutomationInstance>;
   setBrowserBounds(bounds: BrowserBounds): Promise<void>;
   navigate(url: string): Promise<void>;
+  startRecording(): Promise<void>;
+  stopRecording(): Promise<Recording>;
   controlWindow(action: WindowControl): Promise<void>;
-  startRun(instanceId: string): Promise<Run>;
+  startRun(instanceId: string, parameters?: Record<string, string>): Promise<Run>;
   cancelRun(id: string): Promise<void>;
   onRunChanged(listener: (run: Run) => void): () => void;
 }

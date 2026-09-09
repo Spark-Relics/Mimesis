@@ -74,7 +74,10 @@ export class TaskRunner {
     run: Run,
     controller: AbortController,
   ) {
-    const timer = setTimeout(() => controller.abort(new AppError("TIMEOUT")), this.timeoutMs);
+    const timer = setTimeout(
+      () => controller.abort(new AppError("TIMEOUT")),
+      Math.min(script.timeoutMs ?? this.timeoutMs, 300_000),
+    );
     const { signal } = controller;
     const context: ScriptContext = {
       signal,

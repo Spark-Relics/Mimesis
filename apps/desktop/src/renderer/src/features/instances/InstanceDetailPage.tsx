@@ -1,167 +1,48 @@
-import type { AutomationInstance, InstanceUpdate, WorkspaceSnapshot } from "@clawler/contracts";
+import {
+  type AutomationInstance,
+  collectionWorkflowSchema,
+  type InstanceUpdate,
+  type Run,
+  type WorkspaceSnapshot,
+  workflowParametersSchema,
+} from "@clawler/contracts";
 import { useI18n } from "@clawler/i18n";
-import { Badge, Button, cn, Panel } from "@clawler/ui";
+import { Badge, Button, cn } from "@clawler/ui";
 import {
   ArrowLeft,
   Braces,
-  Check,
-  CircleDot,
+  Circle,
   FileClock,
-  ListTree,
+  Globe2,
   Play,
   Save,
   Settings2,
   Square,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { bridge, isDesktop } from "../../platform/bridge";
+import { errorMessageKey } from "../../shared/presentation";
+import { BrowserPanel } from "../browser/BrowserPanel";
 import { RunsPage } from "../runs/RunsPage";
-import { ScriptStudio } from "../studio/ScriptStudio";
+import { CollectionEditor, emptyWorkflow, quotesWorkflow } from "./CollectionEditor";
+import { InstanceConfiguration } from "./InstanceConfiguration";
 
 const detailTabs = [
-  { id: "tasks", key: "instanceTasks", icon: ListTree },
-  { id: "script", key: "instanceScriptTab", icon: Braces },
+  { id: "browser", key: "flowBrowse", icon: Globe2 },
+  { id: "workflow", key: "flowConfigure", icon: Braces },
   { id: "config", key: "instanceConfig", icon: Settings2 },
   { id: "runs", key: "instanceRuns", icon: FileClock },
 ] as const;
 type DetailTab = (typeof detailTabs)[number]["id"];
-
-function InstanceConfiguration({
-  instance,
-  workspace,
-  disabled,
-  onSave,
-}: {
-  instance: AutomationInstance;
-  workspace: WorkspaceSnapshot;
-  disabled: boolean;
-  onSave(input: InstanceUpdate): void;
-}) {
-  const { t } = useI18n();
-  const [name, setName] = useState(instance.name);
-  const [targetUrl, setTargetUrl] = useState(instance.targetUrl);
-  const [profileId, setProfileId] = useState(instance.profileId);
-  const [enabled, setEnabled] = useState(instance.enabled);
-  return (
-    <Panel className="instance-config-panel">
-      <div className="instance-section-heading">
-        <div>
-          <strong>{t("configurationTitle")}</strong>
-          <p>{t("configurationDescription")}</p>
-        </div>
-      </div>
-      <form
-        className="instance-config-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          onSave({ name, targetUrl, profileId, enabled });
-        }}
-      >
-        <label htmlFor="config-instance-name">{t("instanceName")}</label>
-        <input
-          id="config-instance-name"
-          value={name}
-          maxLength={64}
-          required
-          disabled={disabled}
-          onChange={(event) => setName(event.target.value)}
-        />
-        <label htmlFor="config-target-url">{t("targetUrl")}</label>
-        <input
-          id="config-target-url"
-          value={targetUrl}
-          required
-          disabled={disabled}
-          placeholder={t("targetPlaceholder")}
-          onChange={(event) => setTargetUrl(event.target.value)}
-        />
-        <label htmlFor="config-profile">{t("instanceProfile")}</label>
-        <select
-          id="config-profile"
-          value={profileId}
-          disabled={disabled}
-          onChange={(event) => setProfileId(event.target.value)}
-        >
-          {workspace.profiles.map((profile) => (
-            <option key={profile.id} value={profile.id}>
-              {profile.name}
-            </option>
-          ))}
-        </select>
-        <label className="instance-enable-row" htmlFor="config-enabled">
-          <span>
-            <strong>{t("enableInstance")}</strong>
-            <small className="instance-enable-description">{t("enableInstanceDescription")}</small>
-          </span>
-          <input
-            id="config-enabled"
-            type="checkbox"
-            checked={enabled}
-            disabled={disabled}
-            onChange={(event) => setEnabled(event.target.checked)}
-          />
-        </label>
-        <div className="instance-config-actions">
-          <Button type="submit" tone="primary" disabled={disabled || !name.trim()}>
-            <Save size={13} />
-            {t("saveConfiguration")}
-          </Button>
-        </div>
-      </form>
-    </Panel>
-  );
-}
-
-function InstanceTasks({ instance }: { instance: AutomationInstance }) {
-  const { t } = useI18n();
-  return (
-    <Panel className="task-flow">
-      <div className="instance-section-heading">
-        <div>
-          <strong>{t("taskFlowTitle")}</strong>
-          <p>{t("taskFlowDescription")}</p>
-        </div>
-        <Badge>{t("taskCount", { count: 2 })}</Badge>
-      </div>
-      <div className="task-flow-row">
-        <span className="task-sequence">{String(1).padStart(2, "0")}</span>
-        <span className="task-icon">
-          <CircleDot size={16} />
-        </span>
-        <span className="task-copy">
-          <strong>{t("stepNavigate")}</strong>
-          <small className="task-description">{t("taskNavigateDescription")}</small>
-        </span>
-        <code>{instance.targetUrl}</code>
-        <Badge tone="success">
-          <Check size={10} />
-          {t("configured")}
-        </Badge>
-      </div>
-      <div className="task-flow-row">
-        <span className="task-sequence">{String(2).padStart(2, "0")}</span>
-        <span className="task-icon">
-          <Braces size={16} />
-        </span>
-        <span className="task-copy">
-          <strong>{t("stepInspect")}</strong>
-          <small className="task-description">{t("taskInspectDescription")}</small>
-        </span>
-        <code>{t("structuredOutput")}</code>
-        <Badge tone="success">
-          <Check size={10} />
-          {t("configured")}
-        </Badge>
-      </div>
-    </Panel>
-  );
-}
 
 export function InstanceDetailPage({
   instance,
   workspace,
   pending,
   onBack,
-  onSaveDraft,
+  onRefresh,
+  onAcceptRun,
+  onRecordingChange,
   onUpdate,
   onRun,
   onCancel,
@@ -173,7 +54,9 @@ export function InstanceDetailPage({
   workspace: WorkspaceSnapshot;
   pending: boolean;
   onBack(): void;
-  onSaveDraft(source: string): Promise<void>;
+  onRefresh(): Promise<void>;
+  onAcceptRun(run: Run): void;
+  onRecordingChange(recording: boolean): void;
   onUpdate(input: InstanceUpdate): void;
   onRun(): void;
   onCancel(id: string): void;
@@ -182,27 +65,111 @@ export function InstanceDetailPage({
   onCopyError(): void;
 }) {
   const { t } = useI18n();
-  const [tab, setTab] = useState<DetailTab>("tasks");
+  const [tab, setTab] = useState<DetailTab>("browser");
+  const [url, setUrl] = useState(instance.targetUrl);
+  const [workflow, setWorkflow] = useState(instance.workflow ?? structuredClone(emptyWorkflow));
+  const [parameters, setParameters] = useState("{}");
+  const [recording, setRecording] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const recorderOwned = useRef(false);
   const instanceRuns = workspace.runs.filter((run) => run.instanceId === instance.id);
   const activeRun = instanceRuns.find((run) => run.status === "running");
-  let stateKey: "enabled" | "paused" = "paused";
-  if (instance.enabled) stateKey = "enabled";
+  const disabled = pending || busy || Boolean(activeRun) || !isDesktop;
+  useEffect(
+    () => () => {
+      if (recorderOwned.current) void bridge.stopRecording().catch(() => undefined);
+      onRecordingChange(false);
+    },
+    [onRecordingChange],
+  );
+  useEffect(() => {
+    setUrl(instance.targetUrl);
+  }, [instance.targetUrl]);
+  async function perform(operation: () => Promise<void>) {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await operation();
+    } catch (failure) {
+      setError(t(errorMessageKey(failure)));
+    } finally {
+      setBusy(false);
+    }
+  }
+  function validate() {
+    const parsed = collectionWorkflowSchema.safeParse(workflow);
+    if (!parsed.success) {
+      setError(
+        t("flowInvalidScript") +
+          " · " +
+          parsed.error.issues.map((issue) => issue.path.join(".")).join(", "),
+      );
+      return;
+    }
+    try {
+      const values = workflowParametersSchema.parse(JSON.parse(parameters));
+      const missing = workflow.before.flatMap((action) => {
+        if (action.kind !== "fill") return [];
+        return [...action.value.matchAll(/\{\{([a-zA-Z][a-zA-Z0-9_]*)\}\}/gu)]
+          .map((match) => match[1] ?? "")
+          .filter((key) => !Object.hasOwn(values, key));
+      });
+      if (missing.length) {
+        setError(`${t("flowMissingParams")} ${[...new Set(missing)].join(", ")}`);
+        return;
+      }
+      setError("");
+      setMessage(t("flowValid"));
+      return { workflow: parsed.data, parameters: values };
+    } catch {
+      setError(t("flowInvalidParams"));
+    }
+  }
+  async function save(run: boolean) {
+    const validated = validate();
+    if (!validated) return;
+    await perform(async () => {
+      await bridge.saveWorkflow(instance.id, validated.workflow, {
+        name: instance.name,
+        targetUrl: url,
+        profileId: workspace.selectedProfileId,
+        enabled: instance.enabled,
+      });
+      await onRefresh();
+      if (run) {
+        onAcceptRun(await bridge.startRun(instance.id, validated.parameters));
+        setTab("runs");
+      } else setMessage(t("flowSaved"));
+    });
+  }
+  function useLastClick() {
+    const last = workflow.before.at(-1);
+    if (last?.kind !== "click") return;
+    setWorkflow({
+      ...workflow,
+      before: workflow.before.slice(0, -1),
+      pagination: { next: last.selector, maxPages: 2 },
+    });
+    setMessage(t("flowMovedToLoop"));
+  }
   return (
     <div className="instance-detail">
       <header className="instance-detail-header">
-        <Button tone="ghost" aria-label={t("backToInstances")} onClick={onBack}>
+        <Button
+          tone="ghost"
+          disabled={recording || busy}
+          aria-label={t("backToInstances")}
+          onClick={onBack}
+        >
           <ArrowLeft size={16} />
         </Button>
         <div className="instance-detail-title">
-          <span className="instance-detail-mark">
-            <ListTree size={20} />
-          </span>
           <div>
-            <div>
-              <h1>{instance.name}</h1>
-              <Badge>{t(stateKey)}</Badge>
-            </div>
-            <p>{t("instanceDetailDescription", { script: t("scriptTitle") })}</p>
+            <h1>{instance.name}</h1>
+            <p>{t("flowJourney")}</p>
           </div>
         </div>
         <div className="instance-detail-actions">
@@ -213,7 +180,18 @@ export function InstanceDetailPage({
             </Button>
           )}
           {!activeRun && (
-            <Button tone="primary" disabled={pending || !instance.enabled} onClick={onRun}>
+            <Button
+              tone="primary"
+              disabled={disabled || recording || !instance.enabled}
+              onClick={() => {
+                if (instance.workflow || workflow.extract.items) {
+                  void save(true);
+                  return;
+                }
+                onRun();
+                setTab("runs");
+              }}
+            >
               <Play size={13} />
               {t("runInstance")}
             </Button>
@@ -225,6 +203,7 @@ export function InstanceDetailPage({
           <button
             type="button"
             key={entry.id}
+            disabled={recording || busy}
             className={cn("instance-tab", tab === entry.id && "is-active")}
             onClick={() => setTab(entry.id)}
           >
@@ -233,28 +212,169 @@ export function InstanceDetailPage({
           </button>
         ))}
       </nav>
+      {message && (
+        <p className="workflow-feedback" role="status">
+          {message}
+        </p>
+      )}
+      {error && (
+        <p className="workflow-feedback workflow-error" role="alert">
+          {error}
+        </p>
+      )}
       <div className="instance-detail-content">
-        {tab === "tasks" && <InstanceTasks instance={instance} />}
-        {tab === "script" && (
-          <ScriptStudio
-            workspace={workspace}
-            pending={pending}
-            instanceId={instance.id}
-            initialUrl={instance.targetUrl}
-            onSave={onSaveDraft}
-            onRun={onRun}
-            onCancel={onCancel}
-            onNavigate={onNavigate}
-            onSelectProfile={onSelectProfile}
-            onCopyError={onCopyError}
-          />
+        {tab === "browser" && (
+          <div className="collection-browser">
+            <div className="recording-toolbar">
+              <div>
+                <strong>{t("flowRecordTitle")}</strong>
+                <p>{t("flowRecordHint")}</p>
+              </div>
+              {!recording && (
+                <Button
+                  disabled={disabled}
+                  onClick={() =>
+                    void perform(async () => {
+                      await bridge.startRecording();
+                      recorderOwned.current = true;
+                      setRecording(true);
+                      onRecordingChange(true);
+                    })
+                  }
+                >
+                  <Circle size={13} />
+                  {t("flowStartRecording")}
+                </Button>
+              )}
+              {recording && (
+                <Button
+                  tone="danger"
+                  disabled={busy}
+                  onClick={() =>
+                    void perform(async () => {
+                      const recorded = await bridge.stopRecording();
+                      recorderOwned.current = false;
+                      setRecording(false);
+                      onRecordingChange(false);
+                      setUrl(recorded.url);
+                      setWorkflow({ ...workflow, before: recorded.actions });
+                      setMessage(
+                        t("flowRecorded", {
+                          count: recorded.actions.length,
+                          skipped: recorded.skipped,
+                        }),
+                      );
+                      setTab("workflow");
+                    })
+                  }
+                >
+                  <Square size={13} />
+                  {t("flowStopRecording")}
+                </Button>
+              )}
+            </div>
+            {recording && (
+              <p className="recording-indicator" role="status">
+                {t("flowRecording")}
+              </p>
+            )}
+            <BrowserPanel
+              profiles={workspace.profiles}
+              selectedProfileId={workspace.selectedProfileId}
+              disabled={disabled || recording}
+              url={url}
+              onUrlChange={setUrl}
+              onNavigate={() => onNavigate(url)}
+              onSelectProfile={onSelectProfile}
+            />
+            <div className="workflow-actions browser-next">
+              <Button
+                disabled={disabled || recording}
+                onClick={() => {
+                  setUrl("https://quotes.toscrape.com/");
+                  setWorkflow(structuredClone(quotesWorkflow));
+                  onNavigate("https://quotes.toscrape.com/");
+                  setMessage(t("flowPresetLoaded"));
+                }}
+              >
+                {t("flowQuotesPreset")}
+              </Button>
+              <Button
+                tone="primary"
+                disabled={recording || busy}
+                onClick={() => setTab("workflow")}
+              >
+                {t("flowConfigure")}
+              </Button>
+            </div>
+          </div>
+        )}
+        {tab === "workflow" && (
+          <div className="workflow-workspace">
+            <div className="workflow-intro">
+              <div>
+                <h2>{t("flowRecipeTitle")}</h2>
+                <p>{t("flowRecipeHint")}</p>
+              </div>
+              <Badge>{t("flowExecutable")}</Badge>
+            </div>
+            <label className="workflow-field">
+              {t("targetUrl")}
+              <input
+                value={url}
+                disabled={disabled}
+                onChange={(event) => setUrl(event.target.value)}
+              />
+            </label>
+            {workflow.before.at(-1)?.kind === "click" && (
+              <Button disabled={disabled} onClick={useLastClick}>
+                {t("flowLastClickLoop")}
+              </Button>
+            )}
+            <CollectionEditor workflow={workflow} onChange={setWorkflow} disabled={disabled} />
+            <section className="workflow-section">
+              <h2>{t("flowParameters")}</h2>
+              <p className="workflow-muted">{t("flowParametersHint")}</p>
+              <textarea
+                className="workflow-parameters"
+                aria-label={t("flowParameters")}
+                value={parameters}
+                spellCheck={false}
+                disabled={disabled}
+                onChange={(event) => setParameters(event.target.value)}
+              />
+            </section>
+            <div className="workflow-actions workflow-footer">
+              <Button disabled={disabled} onClick={validate}>
+                {t("flowCheck")}
+              </Button>
+              <Button disabled={disabled} onClick={() => void save(false)}>
+                <Save size={13} />
+                {t("flowSave")}
+              </Button>
+              <Button
+                tone="primary"
+                disabled={disabled || !instance.enabled}
+                onClick={() => void save(true)}
+              >
+                <Play size={13} />
+                {t("flowSaveRun")}
+              </Button>
+            </div>
+            <details className="workflow-api">
+              <summary>{t("flowApi")}</summary>
+              <p>{t("flowApiHint")}</p>
+              <pre>{JSON.stringify({ instanceId: instance.id, parameters: {} }, null, 2)}</pre>
+              <code>{"/v1/jobs → /v1/jobs/:id → /v1/jobs/:id/result?format=csv"}</code>
+            </details>
+          </div>
         )}
         {tab === "config" && (
           <InstanceConfiguration
             key={instance.updatedAt}
             instance={instance}
             workspace={workspace}
-            disabled={pending || Boolean(activeRun)}
+            disabled={disabled}
             onSave={onUpdate}
           />
         )}

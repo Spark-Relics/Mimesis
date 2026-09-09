@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "before": [],
+  "extract": {
+    "items": ".quote",
+    "fields": [
+      {
+        "name": "quote",
+        "selector": ".text",
+        "attribute": "text",
+        "required": true
+      },
+      {
+        "name": "author",
+        "selector": ".author",
+        "attribute": "text",
+        "required": true
+      }
+    ]
+  },
+  "pagination": {
+    "next": "li.next > a",
+    "maxPages": 2
+  },
+  "waitTimeoutMs": 8000,
+  "maxRecords": 1000
+}

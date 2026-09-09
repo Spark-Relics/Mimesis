@@ -1,9 +1,17 @@
 import type { AutomationInstance, Run, WorkspaceSnapshot } from "@clawler/contracts";
 import { useI18n } from "@clawler/i18n";
 import { Badge, Button, Panel } from "@clawler/ui";
-import { ArrowRight, Box, Play, Plus, X } from "lucide-react";
+import { ArrowRight, Box, Monitor, Play, Plus, Search, X } from "lucide-react";
 import { useState } from "react";
+import emptyInstances from "../../assets/empty-instances.svg";
 import { statusKeys, statusTones } from "../../shared/presentation";
+import { filterInstances, type InstanceFilter, summarizeInstances } from "./overview";
+
+const filters = [
+  { id: "all", key: "filterAll" },
+  { id: "enabled", key: "enabled" },
+  { id: "paused", key: "paused" },
+] as const;
 
 function InstanceRunState({ run }: { run: Run | undefined }) {
   const { t, formatDate } = useI18n();
@@ -32,15 +40,23 @@ export function InstancesPage({
   const { t } = useI18n();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<InstanceFilter>("all");
+  const summary = summarizeInstances(workspace);
+  const visibleInstances = filterInstances(workspace.instances, query, filter);
+  const counts = {
+    all: workspace.instances.length,
+    enabled: summary.enabled,
+    paused: workspace.instances.length - summary.enabled,
+  };
   return (
     <div className="instances-page">
       <header className="page-heading instances-heading">
         <div>
-          <div className="eyebrow">{t("instancesEyebrow")}</div>
           <h1>{t("instancesTitle")}</h1>
           <p>{t("instancesDescription")}</p>
         </div>
-        <Button tone="primary" onClick={() => setCreating(true)}>
+        <Button tone="primary" disabled={disabled} onClick={() => setCreating(true)}>
           <Plus size={14} />
           {t("newInstance")}
         </Button>
@@ -75,61 +91,126 @@ export function InstancesPage({
         </form>
       )}
 
-      <div className="instance-list-meta">
-        <strong>{t("allInstances")}</strong>
-        <span>{t("instanceCount", { count: workspace.instances.length })}</span>
-      </div>
       <Panel className="instance-list">
-        <div className="instance-list-head">
-          <span>{t("instanceColumn")}</span>
-          <span>{t("instanceProfile")}</span>
-          <span>{t("instanceLastRun")}</span>
-          <span>{t("instanceStatus")}</span>
-          <span className="sr-only">{t("instanceActions")}</span>
+        <div className="instance-list-meta">
+          <div>
+            <strong>{t("allInstances")}</strong>
+            <span>{t("instanceCount", { count: visibleInstances.length })}</span>
+          </div>
+          <label className="instance-search">
+            <Search size={15} aria-hidden="true" />
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              aria-label={t("searchInstances")}
+              placeholder={t("searchInstances")}
+            />
+          </label>
         </div>
-        {workspace.instances.map((instance, index) => {
-          const profile = workspace.profiles.find((entry) => entry.id === instance.profileId);
-          const latestRun = workspace.runs.find((run) => run.instanceId === instance.id);
-          let instanceTone: "success" | "neutral" = "neutral";
-          let instanceStatusKey: "enabled" | "paused" = "paused";
-          if (instance.enabled) {
-            instanceTone = "success";
-            instanceStatusKey = "enabled";
-          }
-          return (
-            <div className="instance-row" key={instance.id}>
-              <button
-                type="button"
-                className="instance-main"
-                onClick={() => onOpen(instance)}
-                disabled={disabled}
+        <fieldset className="instance-filters">
+          <legend className="sr-only">{t("filterInstances")}</legend>
+          {filters.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              aria-pressed={filter === entry.id}
+              onClick={() => setFilter(entry.id)}
+            >
+              {t(entry.key)}
+              <span>{counts[entry.id]}</span>
+            </button>
+          ))}
+        </fieldset>
+        <div className="instance-table-wrap">
+          <table className="instance-table">
+            <thead>
+              <tr className="instance-list-head">
+                <th scope="col">{t("instanceTargetColumn")}</th>
+                <th scope="col">{t("instanceProfile")}</th>
+                <th scope="col">{t("instanceLastRun")}</th>
+                <th scope="col">{t("instanceStatus")}</th>
+                <th scope="col">
+                  <span className="sr-only">{t("instanceActions")}</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleInstances.map((instance) => {
+                const profile = workspace.profiles.find((entry) => entry.id === instance.profileId);
+                const latestRun = summary.latest.get(instance.id);
+                let instanceTone: "success" | "neutral" = "neutral";
+                let instanceStatusKey: "enabled" | "paused" = "paused";
+                if (instance.enabled) {
+                  instanceTone = "success";
+                  instanceStatusKey = "enabled";
+                }
+                return (
+                  <tr className="instance-row" key={instance.id}>
+                    <td>
+                      <button
+                        type="button"
+                        className="instance-main"
+                        onClick={() => onOpen(instance)}
+                        disabled={disabled}
+                      >
+                        <span>
+                          <strong>{instance.name}</strong>
+                          <small className="instance-script-name">{instance.targetUrl}</small>
+                        </span>
+                      </button>
+                    </td>
+                    <td>
+                      <span className="instance-profile-name">
+                        <Monitor size={14} />
+                        {profile?.name ?? t("errorNotFound")}
+                      </span>
+                    </td>
+                    <td>
+                      <InstanceRunState run={latestRun} />
+                    </td>
+                    <td>
+                      <Badge tone={instanceTone}>{t(instanceStatusKey)}</Badge>
+                    </td>
+                    <td>
+                      <div className="instance-row-actions">
+                        <Button
+                          tone="ghost"
+                          disabled={disabled || !instance.enabled}
+                          aria-label={t("runInstance")}
+                          onClick={() => onRun(instance)}
+                        >
+                          <Play size={13} />
+                        </Button>
+                        <Button tone="ghost" onClick={() => onOpen(instance)} disabled={disabled}>
+                          {t("openInstance")}
+                          <ArrowRight size={13} />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {visibleInstances.length === 0 && (
+          <div className="instance-empty" role="status">
+            <img src={emptyInstances} alt="" width="128" height="88" />
+            <strong>{t("noMatchingInstances")}</strong>
+            <p>{t("noMatchingDescription")}</p>
+            {(query || filter !== "all") && (
+              <Button
+                onClick={() => {
+                  setQuery("");
+                  setFilter("all");
+                }}
               >
-                <span className="instance-index">{String(index + 1).padStart(2, "0")}</span>
-                <span>
-                  <strong>{instance.name}</strong>
-                  <small className="instance-script-name">{t("scriptTitle")}</small>
-                </span>
-              </button>
-              <span className="instance-profile-name">{profile?.name ?? t("errorNotFound")}</span>
-              <InstanceRunState run={latestRun} />
-              <Badge tone={instanceTone}>{t(instanceStatusKey)}</Badge>
-              <div className="instance-row-actions">
-                <Button
-                  tone="ghost"
-                  disabled={disabled || !instance.enabled}
-                  aria-label={t("runInstance")}
-                  onClick={() => onRun(instance)}
-                >
-                  <Play size={13} />
-                </Button>
-                <Button tone="ghost" onClick={() => onOpen(instance)} disabled={disabled}>
-                  {t("openInstance")}
-                  <ArrowRight size={13} />
-                </Button>
-              </div>
-            </div>
-          );
-        })}
+                {t("clearFilters")}
+              </Button>
+            )}
+          </div>
+        )}
       </Panel>
     </div>
   );

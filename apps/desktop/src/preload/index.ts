@@ -8,6 +8,7 @@ import {
   IPC,
   instanceUpdateSchema,
   profileSchema,
+  recordingSchema,
   runSchema,
   workspaceSchema,
   z,
@@ -39,17 +40,25 @@ const bridge: DesktopBridge = {
     automationInstanceSchema.parse(
       await request({ method: "instances.update", id, input: instanceUpdateSchema.parse(input) }),
     ),
+  saveWorkflow: async (instanceId, workflow, input) =>
+    automationInstanceSchema.parse(
+      await request({ method: "workflow.save", instanceId, workflow, input }),
+    ),
   setBrowserBounds: async (bounds) => {
     await request({ method: "browser.bounds", bounds });
   },
   navigate: async (url) => {
     await request({ method: "browser.navigate", url });
   },
+  startRecording: async () => {
+    await request({ method: "recording.start" });
+  },
+  stopRecording: async () => recordingSchema.parse(await request({ method: "recording.stop" })),
   controlWindow: async (action) => {
     await request({ method: "window.control", action });
   },
-  startRun: async (instanceId) =>
-    runSchema.parse(await request({ method: "runs.start", instanceId })),
+  startRun: async (instanceId, parameters) =>
+    runSchema.parse(await request({ method: "runs.start", instanceId, parameters })),
   cancelRun: async (id) => {
     await request({ method: "runs.cancel", id });
   },

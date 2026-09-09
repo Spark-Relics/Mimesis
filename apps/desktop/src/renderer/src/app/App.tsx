@@ -5,20 +5,8 @@ import type {
   WorkspaceSnapshot,
 } from "@clawler/contracts";
 import { useI18n } from "@clawler/i18n";
-import { Badge, Button, cn, EmptyState } from "@clawler/ui";
-import {
-  Boxes,
-  ChevronDown,
-  CircleHelp,
-  Command,
-  FolderLock,
-  History,
-  Layers2,
-  Minus,
-  Settings2,
-  Square,
-  X,
-} from "lucide-react";
+import { Button, cn, EmptyState } from "@clawler/ui";
+import { Boxes, Command, FolderLock, History, Minus, Settings2, Square, X } from "lucide-react";
 import { useState } from "react";
 import { InstanceDetailPage } from "../features/instances/InstanceDetailPage";
 import { InstancesPage } from "../features/instances/InstancesPage";
@@ -91,16 +79,14 @@ function WorkspaceContent({
         workspace={workspace}
         pending={pending}
         onBack={onBackToInstances}
-        onSaveDraft={async (source) => {
-          await action(async () => {
-            await bridge.saveDraft(source);
-            await refresh();
-            setNotice("saved");
-          });
-        }}
+        onRefresh={refresh}
+        onAcceptRun={acceptRun}
+        onRecordingChange={controller.setRecording}
         onUpdate={(input: InstanceUpdate) => {
           void action(async () => {
             await bridge.updateInstance(selectedInstance.id, input);
+            if (workspace.selectedProfileId !== input.profileId)
+              await bridge.selectProfile(input.profileId);
             await refresh();
             setNotice("configurationSaved");
           });
@@ -164,22 +150,16 @@ export function App() {
   }
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
+    <div className="app-shell enterprise-shell">
+      <header className="workspace-topnav">
         <div className="brand">
           <div className="brand-mark">
             <Command size={19} strokeWidth={1.7} />
           </div>
           <div>
             <strong>{t("appName")}</strong>
+            <small>{t("gatewayLabel")}</small>
           </div>
-        </div>
-        <div className="workspace-switch">
-          <span className="workspace-avatar">
-            <Layers2 size={14} />
-          </span>
-          <span>{t("workspace")}</span>
-          <ChevronDown size={12} />
         </div>
         <nav className="workspace-nav" aria-label={t("workspace")}>
           {navigation.map((entry) => (
@@ -187,7 +167,8 @@ export function App() {
               type="button"
               key={entry.id}
               className={cn("nav-item", view === entry.id && "is-active")}
-              aria-current={view === entry.id}
+              aria-current={view === entry.id && "page"}
+              disabled={controller.recording}
               onClick={() => navigate(entry.id)}
             >
               <entry.icon size={18} strokeWidth={1.6} />
@@ -195,43 +176,54 @@ export function App() {
             </button>
           ))}
         </nav>
-        <div className="topbar-right">
-          <div className="runtime-status">
-            <span className="status-dot" />
-            <span>{t(runtimeKey)}</span>
-          </div>
-          <Badge tone="success">{t("noAi")}</Badge>
-          <CircleHelp size={16} />
-          <span className="user-avatar">
-            <Command size={13} />
-          </span>
-          <div className="window-controls">
-            <button
-              type="button"
-              aria-label={t("minimize")}
-              onClick={() => controlWindow("minimize")}
-            >
-              <Minus size={14} />
-            </button>
-            <button
-              type="button"
-              aria-label={t("maximize")}
-              onClick={() => controlWindow("toggle-maximize")}
-            >
-              <Square size={11} />
-            </button>
-            <button
-              type="button"
-              className="window-control-close"
-              aria-label={t("close")}
-              onClick={() => controlWindow("close")}
-            >
-              <X size={14} />
-            </button>
-          </div>
-        </div>
+        <span className="topnav-runtime">{t(runtimeKey)}</span>
       </header>
       <div className="workspace-shell">
+        <header className="topbar">
+          <div className="breadcrumb">
+            <span>{t("workspace")}</span>
+            <span aria-hidden="true">{"/"}</span>
+            <strong>
+              {t(navigation.find((entry) => entry.id === view)?.key ?? "navInstances")}
+            </strong>
+            {selectedInstanceId && (
+              <span className="breadcrumb-instance">
+                {"/ "}
+                {
+                  controller.workspace?.instances.find(
+                    (instance) => instance.id === selectedInstanceId,
+                  )?.name
+                }
+              </span>
+            )}
+          </div>
+          <div className="topbar-right">
+            <div className="window-controls">
+              <button
+                type="button"
+                aria-label={t("minimize")}
+                onClick={() => controlWindow("minimize")}
+              >
+                <Minus size={14} />
+              </button>
+              <button
+                type="button"
+                aria-label={t("maximize")}
+                onClick={() => controlWindow("toggle-maximize")}
+              >
+                <Square size={11} />
+              </button>
+              <button
+                type="button"
+                className="window-control-close"
+                aria-label={t("close")}
+                onClick={() => controlWindow("close")}
+              >
+                <X size={14} />
+              </button>
+            </div>
+          </div>
+        </header>
         <main className="main-content">
           {controller.workspace && (
             <WorkspaceContent

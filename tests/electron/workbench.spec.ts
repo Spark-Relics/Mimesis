@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { type ElectronApplication, expect, test } from "@playwright/test";
 
@@ -36,7 +36,31 @@ test("real browser, script execution, profile isolation, persistence and localiz
     ).toBe("none");
     await expect(page.locator(".instances-page")).toBeVisible();
     await expect(page.locator(".instance-row")).toHaveCount(1);
+    await expect(page.locator("aside")).toHaveCount(0);
+    await page.getByRole("searchbox", { name: "搜索实例或目标网址" }).fill("no-such-instance");
+    await expect(page.locator(".instance-row")).toHaveCount(0);
+    await expect(page.getByText("没有匹配的实例", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "清除筛选", exact: true }).click();
+    await expect(page.locator(".instance-row")).toHaveCount(1);
+    await page.locator(".instance-filters button").nth(2).click();
+    await expect(page.locator(".instance-row")).toHaveCount(0);
+    await page.locator(".instance-filters button").first().click();
     await page.screenshot({ path: testInfo.outputPath("instances-zh.png") });
+    await application.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0]?.setSize(1080, 760),
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const table = document.querySelector(".instance-table-wrap");
+          return Boolean(table && table.scrollWidth <= table.clientWidth);
+        }),
+      )
+      .toBe(true);
+    await page.screenshot({ path: testInfo.outputPath("instances-compact-zh.png") });
+    await application.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0]?.setSize(1512, 1000),
+    );
     await page.locator(".instance-main").first().click();
     await expect(page.locator(".instance-detail")).toBeVisible();
     await page.locator(".instance-detail-actions .button--primary").click();
@@ -68,17 +92,30 @@ test("real browser, script execution, profile isolation, persistence and localiz
     expect(remoteIsolation.globals).toEqual({ node: "undefined", bridge: "undefined" });
     expect(remoteIsolation.scrollbarWidth).toBe("none");
 
-    await page.locator(".instance-tab").nth(1).click();
-    await page.getByRole("button", { name: "编辑草稿", exact: true }).click();
-    const draftSource =
-      "// A saved draft must never replace the published example\nthrow new Error('not published');";
-    await page.getByRole("textbox", { name: "脚本源码" }).fill(draftSource);
-    await page.getByRole("button", { name: "保存草稿", exact: true }).click();
+    await page.locator(".instance-tab").nth(0).click();
     await expect
-      .poll(async () =>
-        page.evaluate(async () => (await window.clawler?.getWorkspace())?.draft.source),
+      .poll(() =>
+        application.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()[0]?.contentView.children.some(
+            (view) => view.getVisible() && view.getBounds().width > 100,
+          ),
+        ),
       )
-      .toBe(draftSource);
+      .toBe(true);
+    await page.screenshot({ path: testInfo.outputPath("instance-script-zh.png") });
+    const embeddedPng = await application.evaluate(async ({ webContents }) => {
+      const browser = webContents
+        .getAllWebContents()
+        .find((entry) => entry.getURL() === "clawler-demo://catalog/");
+      if (!browser) throw new Error("Embedded browser missing");
+      return (await browser.capturePage(undefined, { stayHidden: true }))
+        .toPNG()
+        .toString("base64");
+    });
+    await writeFile(
+      testInfo.outputPath("embedded-browser.png"),
+      Buffer.from(embeddedPng, "base64"),
+    );
     await page.locator(".instance-detail-actions .button--primary").click();
     await expect
       .poll(async () =>
@@ -153,7 +190,6 @@ test("real browser, script execution, profile isolation, persistence and localiz
     page = await workbenchPage(application);
     await expect(page.getByRole("button", { name: "Instances", exact: true })).toBeVisible();
     const restored = await page.evaluate(() => window.clawler?.getWorkspace());
-    expect(restored?.draft.source).toBe(draftSource);
     expect(restored?.profiles).toHaveLength(2);
     expect(restored?.instances).toHaveLength(2);
     expect(restored?.selectedProfileId).toBe(secondId);

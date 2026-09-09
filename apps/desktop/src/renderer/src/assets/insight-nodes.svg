@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" fill="none">
+  <title>Connected workflow nodes</title>
+  <path d="m22 13-9 21m13-21 9 21M15 37h18" stroke="#187b66" stroke-width="1.7" stroke-linecap="round"/>
+  <circle cx="24" cy="10" r="5" fill="#e9f3ef" stroke="#187b66" stroke-width="1.7"/>
+  <circle cx="11" cy="37" r="5" fill="#fff" stroke="#187b66" stroke-width="1.7"/>
+  <circle cx="37" cy="37" r="5" fill="#fff" stroke="#187b66" stroke-width="1.7"/>
+</svg>

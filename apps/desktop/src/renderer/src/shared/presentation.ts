@@ -16,6 +16,10 @@ export const statusTones = {
 export const stepKeys: Record<StepKind, MessageKey> = {
   navigate: "stepNavigate",
   inspect: "stepInspect",
+  fill: "stepFill",
+  click: "stepClick",
+  wait: "stepWait",
+  extract: "stepExtract",
 };
 export const errorKeys: Record<ErrorCode, MessageKey> = {
   INVALID_INPUT: "errorInvalidInput",

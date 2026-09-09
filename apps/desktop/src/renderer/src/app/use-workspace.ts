@@ -9,6 +9,7 @@ export function useWorkspace() {
   const [error, setError] = useState<MessageKey>();
   const [notice, setNotice] = useState<MessageKey>();
   const [pending, setPending] = useState(false);
+  const [recording, setRecording] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -60,5 +61,16 @@ export function useWorkspace() {
     });
   }
 
-  return { workspace, error, notice, pending, refresh, action, acceptRun, setNotice };
+  return {
+    workspace,
+    error,
+    notice,
+    pending,
+    recording,
+    setRecording,
+    refresh,
+    action,
+    acceptRun,
+    setNotice,
+  };
 }
