@@ -9,6 +9,7 @@ import {
   profileSchema,
   recordingSchema,
   runSchema,
+  storageLocationSchema,
   workspaceSchema,
   z,
 } from "@clawler/contracts";
@@ -26,6 +27,20 @@ async function request(input: DesktopRequest): Promise<unknown> {
 }
 
 const bridge: DesktopBridge = {
+  getStorageLocation: async () =>
+    storageLocationSchema.parse(await request({ method: "storage.get" })),
+  chooseStorageDirectory: async () =>
+    z
+      .string()
+      .nullable()
+      .parse(await request({ method: "storage.choose" })),
+  openStorageDirectory: async () => {
+    await request({ method: "storage.open" });
+  },
+  scheduleStorageDirectory: async (path) =>
+    storageLocationSchema.parse(await request({ method: "storage.schedule", path })),
+  cancelStorageDirectory: async () =>
+    storageLocationSchema.parse(await request({ method: "storage.cancel" })),
   getWorkspace: async () => workspaceSchema.parse(await request({ method: "workspace.get" })),
   createProfile: async (name) =>
     profileSchema.parse(await request({ method: "profiles.create", name })),

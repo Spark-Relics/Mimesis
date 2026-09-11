@@ -14,6 +14,9 @@ export const errorCodeSchema = z.enum([
   "STORAGE_FAILED",
   "INTERNAL",
   "DESKTOP_REQUIRED",
+  "STORAGE_PATH_INVALID",
+  "STORAGE_TARGET_OCCUPIED",
+  "STORAGE_SPACE_LOW",
 ]);
 export type ErrorCode = z.infer<typeof errorCodeSchema>;
 
@@ -259,8 +262,20 @@ export type BrowserBounds = z.infer<typeof boundsSchema>;
 export const windowControlSchema = z.enum(["minimize", "toggle-maximize", "close"]);
 export type WindowControl = z.infer<typeof windowControlSchema>;
 
+export const storageLocationSchema = z.object({
+  current: z.string(),
+  source: z.enum(["default", "configuration", "environment"]),
+  pending: z.string().nullable(),
+});
+export type StorageLocation = z.infer<typeof storageLocationSchema>;
+
 export const requestSchema = z.discriminatedUnion("method", [
   z.object({ method: z.literal("workspace.get") }),
+  z.object({ method: z.literal("storage.get") }),
+  z.object({ method: z.literal("storage.choose") }),
+  z.object({ method: z.literal("storage.open") }),
+  z.object({ method: z.literal("storage.schedule"), path: z.string().trim().min(1).max(4096) }),
+  z.object({ method: z.literal("storage.cancel") }),
   z.object({ method: z.literal("profiles.create"), name: z.string().trim().min(1).max(64) }),
   z.object({ method: z.literal("profiles.select"), id: z.string().uuid() }),
   z.object({ method: z.literal("instances.create"), name: z.string().trim().min(1).max(64) }),
@@ -291,6 +306,11 @@ export type DesktopRequest = z.infer<typeof requestSchema>;
 export type RpcResult<T> = { ok: true; value: T } | { ok: false; error: ErrorCode };
 
 export interface DesktopBridge {
+  getStorageLocation(): Promise<StorageLocation>;
+  chooseStorageDirectory(): Promise<string | null>;
+  openStorageDirectory(): Promise<void>;
+  scheduleStorageDirectory(path: string): Promise<StorageLocation>;
+  cancelStorageDirectory(): Promise<StorageLocation>;
   getWorkspace(): Promise<WorkspaceSnapshot>;
   createProfile(name: string): Promise<Profile>;
   selectProfile(id: string): Promise<void>;

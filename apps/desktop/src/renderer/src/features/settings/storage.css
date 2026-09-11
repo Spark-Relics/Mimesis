@@ -1,0 +1,111 @@
+.storage-settings {
+  margin: 20px 0;
+  padding: 24px;
+  color: var(--text);
+}
+.storage-heading {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+.storage-heading h2 {
+  margin: 0 0 6px;
+  font-size: 18px;
+  font-weight: 600;
+}
+.storage-heading p,
+.storage-hint,
+.storage-pending p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #646965;
+}
+.storage-current-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.storage-settings label {
+  display: block;
+  font-size: 12px;
+  font-weight: 550;
+}
+.storage-path-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+.storage-path-row input {
+  min-width: 0;
+  flex: 1;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+}
+.storage-path-row input[readonly] {
+  background: #f4f5f2;
+}
+.storage-path-row button {
+  flex-shrink: 0;
+}
+.storage-scope {
+  margin: 20px 0;
+}
+.storage-scope > div {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.storage-scope dt {
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.storage-scope dd {
+  margin: 0;
+  font-size: 12px;
+  color: #646965;
+}
+.storage-hint {
+  margin-top: 12px;
+}
+.storage-pending {
+  padding: 16px;
+  margin-top: 16px;
+  border: 1px solid #d8e2d8;
+  border-radius: 8px;
+  background: #f0f5ee;
+}
+.storage-pending strong {
+  display: block;
+  font-size: 13px;
+}
+.storage-pending code {
+  display: block;
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.storage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+.storage-error {
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  border: 1px solid #e9cac4;
+  border-radius: 8px;
+  background: #fff5f2;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.storage-error p {
+  margin: 0;
+}

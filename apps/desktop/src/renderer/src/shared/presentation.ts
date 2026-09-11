@@ -30,6 +30,9 @@ export const errorKeys: Record<ErrorCode, MessageKey> = {
   TIMEOUT: "errorTimeout",
   CANCELLED: "errorCancelled",
   STORAGE_FAILED: "errorStorage",
+  STORAGE_PATH_INVALID: "errorStoragePath",
+  STORAGE_TARGET_OCCUPIED: "errorStorageOccupied",
+  STORAGE_SPACE_LOW: "errorStorageSpace",
   INTERNAL: "errorInternal",
   DESKTOP_REQUIRED: "desktopRequired",
 };

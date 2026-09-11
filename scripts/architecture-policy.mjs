@@ -5,6 +5,7 @@ export const workspaceDependencies = {
   "@clawler/script-registry": ["@clawler/contracts", "@clawler/script-sdk"],
   "@clawler/workflow-core": ["@clawler/contracts", "@clawler/script-sdk"],
   "@clawler/browser-host": ["@clawler/contracts", "@clawler/script-sdk"],
+  // Runtime worker plus offline location migration; see docs/storage-location.md.
   "@clawler/storage": ["@clawler/contracts"],
   "@clawler/gateway": ["@clawler/contracts", "@clawler/storage"],
   "@clawler/i18n": [],

@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { IPC, type RpcResult, requestSchema, toErrorCode } from "@clawler/contracts";
@@ -7,8 +8,10 @@ import {
   gatewayConfigFromEnv,
   SqliteGatewayRepository,
 } from "@clawler/gateway";
+import { enUS, zhCN } from "@clawler/i18n/resources";
+import { StorageLocationManager } from "@clawler/storage/location";
 import { RuntimeStore } from "@clawler/storage/runtime";
-import { app, BrowserWindow, ipcMain, protocol, session } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, protocol, session, shell } from "electron";
 import { assertTrustedSender, resolveAssetPath } from "./security";
 import { WorkspaceService } from "./workspace-service";
 
@@ -17,9 +20,32 @@ protocol.registerSchemesAsPrivileged([
   { scheme: "clawler-demo", privileges: { standard: true, secure: true } },
 ]);
 
-if (process.env.CLAWLER_DATA_DIR) app.setPath("userData", process.env.CLAWLER_DATA_DIR);
-const ownsWorkspace = app.requestSingleInstanceLock();
-if (!ownsWorkspace) app.quit();
+const defaultDataRoot = process.env.CLAWLER_DEFAULT_DATA_DIR ?? app.getPath("userData");
+let configurationRoot = join(app.getPath("appData"), "MimesisLauncher");
+if (process.env.CLAWLER_DATA_DIR) configurationRoot = `${process.env.CLAWLER_DATA_DIR}.launcher`;
+if (process.env.CLAWLER_CONFIG_DIR) configurationRoot = process.env.CLAWLER_CONFIG_DIR;
+let location: StorageLocationManager | undefined;
+let startupError: unknown;
+let ownsWorkspace = false;
+try {
+  mkdirSync(configurationRoot, { recursive: true });
+  // Keep the application lock stable when the data directory changes.
+  app.setPath("userData", configurationRoot);
+  ownsWorkspace = app.requestSingleInstanceLock();
+  if (ownsWorkspace) {
+    location = new StorageLocationManager(
+      configurationRoot,
+      defaultDataRoot,
+      process.env.CLAWLER_DATA_DIR,
+    );
+    app.setPath("userData", location.current);
+    app.setPath("sessionData", location.current);
+    app.setAppLogsPath(join(location.current, "logs"));
+  }
+} catch (error) {
+  startupError = error;
+}
+if (!ownsWorkspace && !startupError) app.quit();
 
 const devUrl = process.env.CLAWLER_RENDERER_URL;
 const mimeTypes: Record<string, string> = {
@@ -83,6 +109,30 @@ async function createWindow(): Promise<void> {
       assertTrustedSender(event, window.webContents.id, devUrl);
       if (shuttingDown) return { ok: false, error: "BUSY" };
       const request = requestSchema.parse(payload);
+      if (location) {
+        switch (request.method) {
+          case "storage.get":
+            return { ok: true, value: location.info() };
+          case "storage.schedule":
+            return { ok: true, value: await location.schedule(request.path) };
+          case "storage.cancel":
+            return { ok: true, value: await location.cancel() };
+          case "storage.choose": {
+            const selected = await dialog.showOpenDialog(window, {
+              properties: ["openDirectory", "createDirectory"],
+              defaultPath: location.current,
+            });
+            let path: string | null = null;
+            if (!selected.canceled) path = selected.filePaths[0] ?? null;
+            return { ok: true, value: path };
+          }
+          case "storage.open": {
+            const failure = await shell.openPath(location.current);
+            if (failure) return { ok: false, error: "STORAGE_FAILED" };
+            return { ok: true, value: null };
+          }
+        }
+      }
       return { ok: true, value: await service?.dispatch(request) };
     } catch (error) {
       return { ok: false, error: toErrorCode(error) };
@@ -111,6 +161,7 @@ async function createWindow(): Promise<void> {
 void app
   .whenReady()
   .then(async () => {
+    if (startupError) throw startupError;
     if (!ownsWorkspace) return;
     session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) =>
       callback(false),
@@ -137,14 +188,40 @@ void app
       if (!mainWindow) void createWindow();
     });
   })
-  .catch((error: unknown) => {
+  .catch(async (error: unknown) => {
     console.error("Application startup failed", error);
+    if (process.env.CLAWLER_TEST !== "1") {
+      let messages: Record<keyof typeof zhCN, string> = zhCN;
+      if (app.getLocale().startsWith("en")) messages = enUS;
+      const buttons = [messages.close];
+      if (StorageLocationManager.hasPending(configurationRoot)) {
+        buttons[0] = messages.storageKeepPending;
+        buttons.push(messages.storageCancel);
+      }
+      const response = await dialog.showMessageBox({
+        type: "error",
+        title: messages.storageStartupTitle,
+        message: messages.storageStartupHint,
+        detail: `${toErrorCode(error)}\n${configurationRoot}`,
+        buttons,
+        cancelId: 0,
+      });
+      if (response.response === 1) {
+        try {
+          StorageLocationManager.cancelPending(configurationRoot);
+        } catch (failure) {
+          console.error("Cannot cancel directory change", failure);
+        }
+      }
+    }
     app.quit();
   });
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
+
+app.on("will-quit", () => location?.close());
 
 app.on("before-quit", (event) => {
   if (shutdownComplete || !ownsWorkspace) return;
@@ -156,6 +233,7 @@ app.on("before-quit", (event) => {
       await gatewayQueue?.close();
       await gatewayServer?.close();
       await service?.shutdown();
+      await location?.flush();
     } catch (error) {
       console.error("Application shutdown failed", error);
     } finally {

@@ -2,6 +2,7 @@ import { resolveLocale, useI18n } from "@clawler/i18n";
 import { Badge, Panel } from "@clawler/ui";
 import { Globe2, Layers3, ShieldCheck } from "lucide-react";
 import { isDesktop } from "../../platform/bridge";
+import { StorageSettings } from "./StorageSettings";
 
 export function SettingsPage() {
   const { t, locale, setLocale } = useI18n();
@@ -34,6 +35,9 @@ export function SettingsPage() {
             <option value="en-US">{t("localeEn")}</option>
           </select>
         </div>
+      </Panel>
+      <StorageSettings />
+      <Panel className="settings-panel">
         <div className="setting-row">
           <ShieldCheck size={21} />
           <div>

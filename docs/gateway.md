@@ -82,7 +82,7 @@ if ($job.status -eq 'succeeded') {
       result.ndjson                      # 成功任务：每行一个记录
 ```
 
-可用 `CLAWLER_DATA_DIR` 指定 Electron `userData`。Profile 继续使用原有 `persist:profile-<UUID>` Session 分区，由 Electron 管理 Cookie、站点存储和缓存，没有搬迁已有浏览器文件。网关任务产生上述文件归档；桌面手动运行与网关运行共用数据库 Run/Step 表。
+可在「设置 → 存储位置」配置自定义目录，保存后在下一次启动时离线复制、校验并启用，原目录保留；也可通过 `CLAWLER_DATA_DIR` 显式覆盖（覆盖期间界面不能更改）。`userData` 与 `sessionData` 使用同一根目录，Profile 继续使用原有 `persist:profile-<UUID>` Session 分区。配置、SQLite、归档和浏览器文件一起迁移，详见[目录设置与恢复](storage-location.md)。网关任务产生上述文件归档；桌面手动运行与网关运行共用数据库 Run/Step 表。
 
 数据库由独立工作线程串行访问，使用 WAL 与事务。202 表示任务已提交到数据库；结果文件先原子写入并同步，再将任务终态、Run/Step 和产物路径、大小、SHA-256 一起提交。磁盘失败会停止接受及调度新任务，健康接口报告不可用。文件与 SQLite 不构成跨资源事务，崩溃可能留下未被数据库引用的文件；API 以数据库终态为准。
 

@@ -38,6 +38,11 @@ function createPreviewBridge(): DesktopBridge {
     throw new AppError("DESKTOP_REQUIRED");
   }
   return {
+    getStorageLocation: async () => desktopRequired(),
+    chooseStorageDirectory: async () => desktopRequired(),
+    openStorageDirectory: async () => desktopRequired(),
+    scheduleStorageDirectory: async () => desktopRequired(),
+    cancelStorageDirectory: async () => desktopRequired(),
     getWorkspace: async () => structuredClone(snapshot),
     createProfile: async () => desktopRequired(),
     selectProfile: async () => desktopRequired(),
