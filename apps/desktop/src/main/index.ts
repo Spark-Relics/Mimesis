@@ -2,12 +2,12 @@ import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { IPC, type RpcResult, requestSchema, toErrorCode } from "@clawler/contracts";
 import {
-  FileGatewayRepository,
   GatewayQueue,
   GatewayServer,
   gatewayConfigFromEnv,
+  SqliteGatewayRepository,
 } from "@clawler/gateway";
-import { JsonWorkspaceRepository } from "@clawler/storage";
+import { RuntimeStore } from "@clawler/storage/runtime";
 import { app, BrowserWindow, ipcMain, protocol, session } from "electron";
 import { assertTrustedSender, resolveAssetPath } from "./security";
 import { WorkspaceService } from "./workspace-service";
@@ -31,6 +31,7 @@ const mimeTypes: Record<string, string> = {
 };
 let mainWindow: BrowserWindow | undefined;
 let service: WorkspaceService | undefined;
+let store: RuntimeStore | undefined;
 let gatewayQueue: GatewayQueue | undefined;
 let gatewayServer: GatewayServer | undefined;
 let shuttingDown = false;
@@ -57,12 +58,15 @@ async function createWindow(): Promise<void> {
   mainWindow = window;
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
-  const repository = new JsonWorkspaceRepository(join(app.getPath("userData"), "workspace.json"));
-  service = await WorkspaceService.create(window, repository);
+  store = await RuntimeStore.open(
+    app.getPath("userData"),
+    join(__dirname, "../storage-worker/index.cjs"),
+  );
+  service = await WorkspaceService.create(window, store);
   const gatewayConfig = gatewayConfigFromEnv(process.env);
   if (gatewayConfig) {
     gatewayQueue = await GatewayQueue.open(
-      new FileGatewayRepository(join(app.getPath("userData"), "runtime")),
+      new SqliteGatewayRepository(join(app.getPath("userData"), "runtime"), store),
       service,
     );
     gatewayServer = await GatewayServer.listen(
@@ -77,6 +81,7 @@ async function createWindow(): Promise<void> {
   ipcMain.handle(IPC.request, async (event, payload: unknown): Promise<RpcResult<unknown>> => {
     try {
       assertTrustedSender(event, window.webContents.id, devUrl);
+      if (shuttingDown) return { ok: false, error: "BUSY" };
       const request = requestSchema.parse(payload);
       return { ok: true, value: await service?.dispatch(request) };
     } catch (error) {
@@ -93,7 +98,7 @@ async function createWindow(): Promise<void> {
     mainWindow = undefined;
   });
   window.on("close", (event) => {
-    if (gatewayQueue && !shutdownComplete) {
+    if (!shutdownComplete) {
       event.preventDefault();
       app.quit();
     }
@@ -150,10 +155,13 @@ app.on("before-quit", (event) => {
     try {
       await gatewayQueue?.close();
       await gatewayServer?.close();
-      await service?.flush();
+      await service?.shutdown();
     } catch (error) {
       console.error("Application shutdown failed", error);
     } finally {
+      await store
+        ?.close()
+        .catch((error: unknown) => console.error("Storage shutdown failed", error));
       shutdownComplete = true;
       app.quit();
     }

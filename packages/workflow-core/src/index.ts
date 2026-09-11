@@ -68,6 +68,20 @@ export class TaskRunner {
     for (const listener of this.listeners) listener(structuredClone(run));
   }
 
+  async stop(): Promise<void> {
+    const active = this.active;
+    if (!active) return;
+    await new Promise<void>((resolve) => {
+      const unsubscribe = this.subscribe((run) => {
+        if (run.id === active.run.id && run.status !== "running") {
+          unsubscribe();
+          resolve();
+        }
+      });
+      active.controller.abort(new AppError("CANCELLED"));
+    });
+  }
+
   private async execute(
     script: ScriptDefinition,
     input: ScriptInput,

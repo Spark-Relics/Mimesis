@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
 
-export function electronConfig(target: "main" | "preload") {
+export function electronConfig(target: "main" | "preload" | "storage-worker") {
   const root = resolve(import.meta.dirname, "..");
   return defineConfig({
     root,

@@ -32,6 +32,21 @@ function completion(runner: TaskRunner): Promise<Run> {
 }
 
 describe("script-only task runtime", () => {
+  it("waits for the final cancellation event before shutdown completes", async () => {
+    const runner = new TaskRunner({
+      navigate: () => new Promise(() => undefined),
+      inspect: async () => result,
+    });
+    const events: Run[] = [];
+    runner.subscribe((run) => events.push(run));
+    runner.start(script, { url: DEMO_URL }, profileId, instanceId);
+    await Promise.resolve();
+    await runner.stop();
+    expect(events.at(-1)?.status).toBe("cancelled");
+    expect(events.at(-1)?.finishedAt).not.toBeNull();
+    expect(runner.busy).toBe(false);
+    await runner.stop();
+  });
   it("runs without any model dependency and emits verified steps and output", async () => {
     const browser = { navigate: vi.fn(async () => undefined), inspect: vi.fn(async () => result) };
     const runner = new TaskRunner(browser);

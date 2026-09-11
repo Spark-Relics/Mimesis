@@ -1,15 +1,30 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gatewayStateSchema } from "@clawler/contracts";
 import { expect, it, vi } from "vitest";
+import { RuntimeDatabase } from "../../storage/src/runtime-database";
 import { completedRun, execution, submission } from "./fixtures.test-support";
 import { GatewayQueue } from "./queue";
-import { FileGatewayRepository } from "./repository";
+import { SqliteGatewayRepository } from "./repository";
 import { cleanResult, serializeResult } from "./results";
 
-it("archives runs and cleaned exports under their instance without changing raw data", async () => {
+it("archives runs and cleaned exports under their instance without changing raw data", async (context) => {
   const root = await mkdtemp(join(tmpdir(), "mimesis-gateway-"));
-  const repository = new FileGatewayRepository(root);
+  const db = new RuntimeDatabase(join(root, "runtime.sqlite"));
+  context.onTestFinished(() => {
+    db.dispatch({ method: "close" });
+  });
+  const repository = new SqliteGatewayRepository(root, {
+    async loadGateway() {
+      const value = db.dispatch({ method: "gateway.load" });
+      if (value === null) return undefined;
+      return gatewayStateSchema.parse(value);
+    },
+    async saveGateway(state, artifacts) {
+      db.dispatch({ method: "gateway.save", state, artifacts });
+    },
+  });
   const raw = completedRun();
   const queue = await GatewayQueue.open(repository, {
     resolve: () => execution,
@@ -32,9 +47,6 @@ it("archives runs and cleaned exports under their instance without changing raw 
   expect(JSON.parse(await readFile(join(folder, "job.json"), "utf8")).run.id).toBe(raw.id);
   await queue.close();
   expect((await repository.load())?.jobs[0]?.status).toBe("succeeded");
-  await writeFile(join(root, "gateway.json"), "broken");
-  await expect(repository.load()).rejects.toThrow("STORAGE_FAILED");
-  expect(await readFile(join(root, "gateway.json"), "utf8")).toBe("broken");
 });
 
 it("handles quoted multilingual CSV, deduplication and disabled cleaning", () => {

@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { join, resolve } from "node:path";
 import { type ElectronApplication, expect, test } from "@playwright/test";
+import { readRuntime } from "./runtime.test-support";
 
 async function ready(application: ElectronApplication) {
   await expect
@@ -79,6 +81,17 @@ test("gateway drives real Chromium, archives results and recovers waiting work o
     expect(await (await request(`/v1/jobs/${job.id}/result?format=csv`)).text()).toBe(
       await readFile(join(artifactDirectory, "result.csv"), "utf8"),
     );
+    const artifacts = readRuntime(
+      dataDirectory,
+      "SELECT path,bytes,sha256 FROM artifacts WHERE jobId=?",
+      job.id,
+    );
+    expect(artifacts).toHaveLength(4);
+    for (const artifact of artifacts) {
+      const content = await readFile(join(dataDirectory, "runtime", String(artifact.path)));
+      expect(artifact.bytes).toBe(content.byteLength);
+      expect(artifact.sha256).toBe(createHash("sha256").update(content).digest("hex"));
+    }
     const slow = (await (await submit("slow", `http://127.0.0.1:${slowAddress.port}/slow`)).json())
       .job;
     await expect.poll(() => status(slow.id)).toBe("running");
@@ -90,10 +103,8 @@ test("gateway drives real Chromium, archives results and recovers waiting work o
     });
     await expect
       .poll(async () => {
-        const state = JSON.parse(
-          await readFile(join(dataDirectory, "runtime", "gateway.json"), "utf8"),
-        );
-        return state.jobs.find((entry: { id: string }) => entry.id === slow.id)?.status;
+        return readRuntime(dataDirectory, "SELECT status FROM gateway_jobs WHERE id=?", slow.id)[0]
+          ?.status;
       })
       .toBe("cancelled");
     await application.close();

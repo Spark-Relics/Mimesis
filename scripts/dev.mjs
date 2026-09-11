@@ -26,14 +26,14 @@ function startElectron() {
 }
 
 function restart() {
-  if (closing || ready.size !== 2) return;
+  if (closing || ready.size !== 3) return;
   clearTimeout(restartTimer);
   restartTimer = setTimeout(() => {
     startElectron();
   }, 150);
 }
 
-for (const target of ["main", "preload"]) {
+for (const target of ["main", "preload", "storage-worker"]) {
   const watcher = await build({
     configFile: `apps/desktop/vite.${target}.config.ts`,
     build: { watch: {} },

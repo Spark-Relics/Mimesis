@@ -1,9 +1,10 @@
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { expect, it } from "vitest";
 import { atomicWrite } from "./atomic-file";
-import { JsonWorkspaceRepository, type StoredState } from "./index";
+import type { StoredState } from "./index";
+import { legacySnapshot } from "./legacy-import";
 
 const profile = {
   id: "00000000-0000-4000-8000-000000000001",
@@ -30,7 +31,7 @@ const initial: StoredState = {
 };
 
 it("backs up legacy source and preserves workflows while removing the obsolete live draft", async () => {
-  const path = join(await mkdtemp(join(tmpdir(), "clawler-store-")), "state.json");
+  const path = join(await mkdtemp(join(tmpdir(), "clawler-store-")), "workspace.json");
   const expected: StoredState = {
     ...initial,
     instances: initial.instances.map((instance) => ({
@@ -55,32 +56,31 @@ it("backs up legacy source and preserves workflows while removing the obsolete l
     draft: { source: "unpublished legacy content", updatedAt: profile.createdAt },
   });
   await writeFile(path, original);
-  const repository = new JsonWorkspaceRepository(path);
+  const repository = { load: () => loadLegacy(path) };
   const migrated = await repository.load();
   expect(migrated).toEqual(expected);
-  expect(await readFile(`${path}.v2.backup.json`, "utf8")).toBe(original);
+  expect(await readFile(`${path}.pre-sqlite.backup.json`, "utf8")).toBe(original);
   expect(await repository.load()).toEqual(expected);
   if (!migrated) throw new Error("Missing migration");
-  await repository.save(migrated);
-  expect(await readFile(path, "utf8")).not.toContain("draft");
-  expect(await readFile(`${path}.v2.backup.json`, "utf8")).toBe(original);
+  expect(await readFile(path, "utf8")).toBe(original);
+  expect(await readFile(`${path}.pre-sqlite.backup.json`, "utf8")).toBe(original);
 });
 
 it("refuses unknown future formats and never overwrites a conflicting migration backup", async () => {
-  const path = join(await mkdtemp(join(tmpdir(), "clawler-store-")), "state.json");
-  const repository = new JsonWorkspaceRepository(path);
+  const path = join(await mkdtemp(join(tmpdir(), "clawler-store-")), "workspace.json");
+  const repository = { load: () => loadLegacy(path) };
   await writeFile(path, JSON.stringify({ ...initial, schemaVersion: 4 }));
-  await expect(repository.load()).rejects.toThrow("STORAGE_FAILED");
+  await expect(repository.load()).rejects.toThrow();
   const original = JSON.stringify({ ...initial, schemaVersion: 2 });
   await writeFile(path, original);
-  await writeFile(`${path}.v2.backup.json`, "different backup");
-  await expect(repository.load()).rejects.toThrow("STORAGE_FAILED");
+  await writeFile(`${path}.pre-sqlite.backup.json`, "different backup");
+  await expect(repository.load()).rejects.toThrow();
   expect(await readFile(path, "utf8")).toBe(original);
-  expect(await readFile(`${path}.v2.backup.json`, "utf8")).toBe("different backup");
+  expect(await readFile(`${path}.pre-sqlite.backup.json`, "utf8")).toBe("different backup");
 });
 
 it("rejects malformed ownership rather than reassigning a historical run", async () => {
-  const path = join(await mkdtemp(join(tmpdir(), "clawler-store-")), "state.json");
+  const path = join(await mkdtemp(join(tmpdir(), "clawler-store-")), "workspace.json");
   const run = {
     id: crypto.randomUUID(),
     instanceId: "invalid",
@@ -95,7 +95,7 @@ it("rejects malformed ownership rather than reassigning a historical run", async
     errorCode: null,
   };
   await writeFile(path, JSON.stringify({ ...initial, schemaVersion: 2, runs: [run] }));
-  await expect(new JsonWorkspaceRepository(path).load()).rejects.toThrow("STORAGE_FAILED");
+  await expect(loadLegacy(path)).rejects.toThrow();
 });
 
 it("cleans temporary files when replacing the destination fails", async () => {
@@ -108,27 +108,16 @@ it("cleans temporary files when replacing the destination fails", async () => {
   expect(await readFile(join(destination, "keep"), "utf8")).toBe("original");
 });
 
-it("serializes writes and preserves the latest profile configuration on disk", async () => {
-  const path = join(await mkdtemp(join(tmpdir(), "clawler-store-")), "state.json");
-  const repository = new JsonWorkspaceRepository(path);
-  expect(await repository.load()).toBeUndefined();
-  await Promise.all([
-    repository.save(initial),
-    repository.save({ ...initial, profiles: [{ ...profile, name: "updated" }] }),
-  ]);
-  expect((await repository.load())?.profiles[0]?.name).toBe("updated");
-});
-
 it("reports corrupt state without silently overwriting it", async () => {
-  const path = join(await mkdtemp(join(tmpdir(), "clawler-store-")), "state.json");
+  const path = join(await mkdtemp(join(tmpdir(), "clawler-store-")), "workspace.json");
   await writeFile(path, "broken", "utf8");
-  const repository = new JsonWorkspaceRepository(path);
-  await expect(repository.load()).rejects.toThrow("STORAGE_FAILED");
+  const repository = { load: () => loadLegacy(path) };
+  await expect(repository.load()).rejects.toThrow();
   expect(await readFile(path, "utf8")).toBe("broken");
 });
 
 it("migrates a version 1 workspace into an instance-owned workspace", async () => {
-  const path = join(await mkdtemp(join(tmpdir(), "clawler-store-")), "state.json");
+  const path = join(await mkdtemp(join(tmpdir(), "clawler-store-")), "workspace.json");
   await writeFile(
     path,
     JSON.stringify({
@@ -140,14 +129,14 @@ it("migrates a version 1 workspace into an instance-owned workspace", async () =
     }),
     "utf8",
   );
-  const migrated = await new JsonWorkspaceRepository(path).load();
+  const migrated = await loadLegacy(path);
   expect(migrated?.schemaVersion).toBe(3);
   expect(migrated?.instances).toHaveLength(1);
   expect(migrated?.instances[0]?.profileId).toBe(profile.id);
 });
 
 it("repairs transition data whose runs predate instance ownership", async () => {
-  const path = join(await mkdtemp(join(tmpdir(), "clawler-store-")), "state.json");
+  const path = join(await mkdtemp(join(tmpdir(), "clawler-store-")), "workspace.json");
   const legacyRun = {
     id: "00000000-0000-4000-8000-000000000003",
     scriptId: "page-inspector",
@@ -165,12 +154,12 @@ it("repairs transition data whose runs predate instance ownership", async () => 
     JSON.stringify({ ...initial, schemaVersion: 2, runs: [legacyRun] }),
     "utf8",
   );
-  const migrated = await new JsonWorkspaceRepository(path).load();
+  const migrated = await loadLegacy(path);
   expect(migrated?.runs[0]?.instanceId).toBe(initial.instances[0]?.id);
 });
 
 it("preserves explicit run ownership when two instances share one script and profile", async () => {
-  const path = join(await mkdtemp(join(tmpdir(), "clawler-store-")), "state.json");
+  const path = join(await mkdtemp(join(tmpdir(), "clawler-store-")), "workspace.json");
   const first = initial.instances[0];
   if (!first) throw new Error("Missing instance");
   const second = { ...first, id: crypto.randomUUID(), name: "Second instance" };
@@ -193,7 +182,11 @@ it("preserves explicit run ownership when two instances share one script and pro
       },
     ],
   };
-  const repository = new JsonWorkspaceRepository(path);
-  await repository.save(state);
+  const repository = { load: () => loadLegacy(path) };
+  await writeFile(path, JSON.stringify(state));
   expect((await repository.load())?.runs[0]?.instanceId).toBe(second.id);
 });
+
+async function loadLegacy(path: string) {
+  return (await legacySnapshot(dirname(path))).workspace;
+}

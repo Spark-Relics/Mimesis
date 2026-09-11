@@ -1,8 +1,9 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import type { CollectionWorkflow } from "@clawler/contracts";
 import { expect, test } from "@playwright/test";
+import { readRuntime } from "./runtime.test-support";
 
 test("record native actions, configure loop, execute with parameters and export through gateway", async ({
   playwright,
@@ -156,7 +157,7 @@ test("record native actions, configure loop, execute with parameters and export 
     expect(
       (await (await api(`/v1/jobs/${job.id}/result?format=ndjson`)).text()).trim().split("\n"),
     ).toHaveLength(4);
-    const saved = await readFile(join(dataDirectory, "workspace.json"), "utf8");
+    const saved = JSON.stringify(readRuntime(dataDirectory, "SELECT workflow FROM instances"));
     expect(saved).not.toContain("never-store-this");
     await writeFile(
       testInfo.outputPath("recorded-workflow.json"),

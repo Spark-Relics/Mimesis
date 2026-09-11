@@ -59,9 +59,11 @@ test("real browser, script execution, profile isolation, persistence and localiz
           JSON.parse(await readFile(resolve(dataDirectory, "workspace.json"), "utf8"))
             .schemaVersion,
       )
-      .toBe(3);
+      .toBe(2);
     expect(
-      JSON.parse(await readFile(resolve(dataDirectory, "workspace.json.v2.backup.json"), "utf8")),
+      JSON.parse(
+        await readFile(resolve(dataDirectory, "workspace.json.pre-sqlite.backup.json"), "utf8"),
+      ),
     ).toEqual(legacy);
     expect(
       await page.evaluate(async () =>

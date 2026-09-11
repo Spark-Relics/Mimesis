@@ -1,13 +1,9 @@
-import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
-import {
-  AppError,
-  type GatewayJob,
-  type GatewayState,
-  gatewayJobSchema,
-  gatewayStateSchema,
-} from "@clawler/contracts";
+import { AppError, type GatewayJob, type GatewayState, gatewayJobSchema } from "@clawler/contracts";
 import { atomicWrite } from "@clawler/storage/atomic-file";
+import type { RuntimeStore } from "@clawler/storage/runtime";
+import type { Artifact } from "@clawler/storage/runtime-protocol";
 import { cleanResult, serializeResult } from "./results";
 
 export interface GatewayRepository {
@@ -16,44 +12,43 @@ export interface GatewayRepository {
   archive(job: GatewayJob): Promise<void>;
 }
 
-/** Single-writer repository. Queue acknowledgment follows the atomic durable write. */
-export class FileGatewayRepository implements GatewayRepository {
-  constructor(private readonly root: string) {}
-
-  async load(): Promise<GatewayState | undefined> {
-    try {
-      return gatewayStateSchema.parse(
-        JSON.parse(await readFile(join(this.root, "gateway.json"), "utf8")),
-      );
-    } catch (error) {
-      if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT")
-        return undefined;
-      throw new AppError("STORAGE_FAILED", { cause: error });
-    }
+/** Files are durable before the queue commits their manifest and terminal job state together. */
+export class SqliteGatewayRepository implements GatewayRepository {
+  private readonly staged = new Map<string, Artifact[]>();
+  constructor(
+    private readonly root: string,
+    private readonly store: Pick<RuntimeStore, "loadGateway" | "saveGateway">,
+  ) {}
+  load(): Promise<GatewayState | undefined> {
+    return this.store.loadGateway();
   }
-
   async save(state: GatewayState): Promise<void> {
-    try {
-      await atomicWrite(
-        join(this.root, "gateway.json"),
-        JSON.stringify(gatewayStateSchema.parse(state), null, 2),
-      );
-    } catch (error) {
-      throw new AppError("STORAGE_FAILED", { cause: error });
-    }
+    await this.store.saveGateway(state, [...this.staged.values()].flat());
+    this.staged.clear();
   }
-
   async archive(input: GatewayJob): Promise<void> {
     const job = gatewayJobSchema.parse(input);
-    // Only schema-validated UUIDs participate in paths. No caller-supplied filenames.
-    const directory = join(this.root, "instances", job.execution.instance.id, "jobs", job.id);
+    const directory = `instances/${job.execution.instance.id}/jobs/${job.id}`;
+    const files: { name: string; content: string }[] = [];
+    if (job.run?.result && job.status === "succeeded") {
+      const result = cleanResult(job.run.result, job.submission.cleaning);
+      for (const format of ["json", "csv", "ndjson"] as const)
+        files.push({ name: `result.${format}`, content: serializeResult(result, format) });
+    }
+    files.push({ name: "job.json", content: JSON.stringify(job, null, 2) });
+    const artifacts: Artifact[] = [];
     try {
-      if (job.run?.result && job.status === "succeeded") {
-        const result = cleanResult(job.run.result, job.submission.cleaning);
-        for (const format of ["json", "csv", "ndjson"] as const)
-          await atomicWrite(join(directory, `result.${format}`), serializeResult(result, format));
+      for (const file of files) {
+        const path = `${directory}/${file.name}`;
+        await atomicWrite(join(this.root, path), file.content);
+        artifacts.push({
+          jobId: job.id,
+          path,
+          bytes: Buffer.byteLength(file.content),
+          sha256: createHash("sha256").update(file.content).digest("hex"),
+        });
       }
-      await atomicWrite(join(directory, "job.json"), JSON.stringify(job, null, 2));
+      this.staged.set(job.id, artifacts);
     } catch (error) {
       throw new AppError("STORAGE_FAILED", { cause: error });
     }

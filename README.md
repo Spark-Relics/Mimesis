@@ -27,7 +27,7 @@ AI is an optional authoring and recovery layer. A published script should contin
 - Embedded Chromium content through `WebContentsView`
 - A bundled page-inspector script for navigation and structured DOM extraction
 - Run lifecycle events, cancellation, timeout handling, and the latest 50 run records
-- Atomic local JSON persistence with schema validation and migration
+- SQLite transactions in a dedicated worker, normalized runtime tables, and backed-up legacy JSON migration
 - Authenticated local HTTP gateway with idempotent submission, queuing, cancellation, and restart recovery
 - Per-instance gateway job archives and cleaned JSON, CSV, and NDJSON exports
 - Simplified Chinese and English UI resources

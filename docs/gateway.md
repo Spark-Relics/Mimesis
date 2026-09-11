@@ -72,9 +72,9 @@ if ($job.status -eq 'succeeded') {
 
 ```text
 <Electron userData>/
-  workspace.json                         # 桌面配置及最近 50 条 Run
   runtime/
-    gateway.json                         # 网关任务、幂等键、配置快照及状态
+    runtime.sqlite                       # 桌面配置、运行、步骤、网关任务及产物索引
+    runtime.sqlite-wal / -shm             # 运行时可能存在的 SQLite 辅助文件
     instances/<instance UUID>/jobs/<job UUID>/
       job.json                           # 终态元数据、步骤及原始 Run
       result.json                        # 成功任务：嵌套结构
@@ -82,11 +82,13 @@ if ($job.status -eq 'succeeded') {
       result.ndjson                      # 成功任务：每行一个记录
 ```
 
-可用 `CLAWLER_DATA_DIR` 指定 Electron `userData`。Profile 继续使用原有 `persist:profile-<UUID>` Session 分区，由 Electron 管理 Cookie、站点存储和缓存，没有搬迁已有浏览器文件。只有通过网关提交的任务写入上述 `runtime` 归档，桌面手动运行仍使用原有存储。
+可用 `CLAWLER_DATA_DIR` 指定 Electron `userData`。Profile 继续使用原有 `persist:profile-<UUID>` Session 分区，由 Electron 管理 Cookie、站点存储和缓存，没有搬迁已有浏览器文件。网关任务产生上述文件归档；桌面手动运行与网关运行共用数据库 Run/Step 表。
 
-网关通过串行协调器写入，临时文件写入并同步后原子替换。202 表示队列持久化成功；成功状态只有在结果归档完成后才保存。磁盘失败会停止接受及调度新任务，健康接口报告不可用。多种结果文件之间不是数据库事务；写入中途崩溃可能留下部分产物，API 以 `gateway.json` 中的终态为准。
+数据库由独立工作线程串行访问，使用 WAL 与事务。202 表示任务已提交到数据库；结果文件先原子写入并同步，再将任务终态、Run/Step 和产物路径、大小、SHA-256 一起提交。磁盘失败会停止接受及调度新任务，健康接口报告不可用。文件与 SQLite 不构成跨资源事务，崩溃可能留下未被数据库引用的文件；API 以数据库终态为准。
 
-- 正常退出：中止正在执行的网关任务，等待终态保存，保留未开始任务。
+首次升级会校验原 `workspace.json` 与 `runtime/gateway.json`，分别保存 `.pre-sqlite.backup.json` 原文备份，再以一个事务导入。迁移成功后不再读写旧 JSON；损坏数据库或未知版本会阻止启动，不会退回旧快照覆盖新数据。详见[事务运行库](runtime-storage.md)。
+
+- 正常退出：中止正在执行的网关或桌面任务，等待终态保存并关闭数据库线程，保留未开始任务。
 - 非正常退出：下次启动继续 `queued`；之前的 `running` 标记为 `failed / INTERRUPTED`，不自动重放可能产生副作用的浏览器操作。
 - 同一数据目录由单个 Electron 应用实例持有，防止同时写入队列和 Session。
 
@@ -98,12 +100,12 @@ if ($job.status -eq 'succeeded') {
 
 - 浏览器并发为 1，HTTP 可并发提交，执行排队；桌面操作或录制占用执行器时网关等待。页面检查脚本超时 30 秒，采集流程总超时 120 秒。
 - 默认最多 100 个等待/运行任务、1000 个历史任务；达到任一上限返回 429，不自动删除历史、幂等键或 Profile。目前没有在线清理接口，容量满后不能无限接单。
-- 队列采用有界 JSON 文件，每次变更重写索引。高吞吐、多租户和持续长期运行需要事务数据库、保留策略、磁盘预算和监控。
+- 状态已分表保存到 SQLite，但服务仍交换有界完整快照，内存队列尚未改为数据库分页调度。高吞吐、多租户和持续长期运行仍需增量命令、保留策略、磁盘预算和监控。
 - 网关队列通过 HTTP 管理；桌面运行页仍显示最近 50 条实际 Run。
 - 应用需持续运行，关闭即停止网关。尚无系统服务、托盘守护、自动启动或防休眠能力。
 - 已有点击、普通文本输入、等待及翻页提取。尚未实现通用脚本沙盒、上传/下载/键盘等完整 RPA SDK、页面请求/响应捕获、账号池租约与轮换、Profile 代理、Webhook 重试和通用结果 Schema。
 - Electron Session 隔离针对 Cookie/站点状态，不提供操作系统机器码隔离，也不保证任意网站都能无适配采集。
 
-下一阶段顺序：事务运行库及清理策略 → 受限 RPA / 网络 SDK → 版本化脚本参数与结果 Schema → Profile 租约、账号池及代理 → 有配额的多实例并发 → 远程鉴权与可靠交付。`GatewayExecutor` 边界可替换当前单执行器，HTTP 与结果归档无需直接依赖 Electron。
+完整开发顺序以[研发与验收](engineering-plan.md)为准；存储底座还需文件配额、保留清理与备份恢复。`GatewayExecutor` 边界可替换当前单执行器，HTTP 与结果归档无需直接依赖 Electron。
 
 验证：`pnpm check`、`pnpm test:e2e`。新增测试覆盖幂等竞态、容量、取消、恢复、磁盘失败、导出及 HTTP 边界；Electron 测试实际采集内置网页、校验磁盘结果，并验证正常退出后的等待任务恢复。

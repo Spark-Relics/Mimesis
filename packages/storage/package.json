@@ -5,7 +5,10 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./atomic-file": "./src/atomic-file.ts"
+    "./atomic-file": "./src/atomic-file.ts",
+    "./runtime": "./src/runtime-store.ts",
+    "./runtime-protocol": "./src/runtime-protocol.ts",
+    "./worker": "./src/runtime-worker.ts"
   },
   "dependencies": {
     "@clawler/contracts": "workspace:*"

@@ -23,6 +23,7 @@ export class WorkspaceService {
   private state: StoredState;
   private mutationPending = false;
   private storageFailed = false;
+  private stopping = false;
   private pendingRunSave: Promise<void> = Promise.resolve();
 
   private constructor(
@@ -95,6 +96,7 @@ export class WorkspaceService {
   }
 
   private assertIdle(): void {
+    if (this.stopping) throw new AppError("BUSY");
     if (this.storageFailed) throw new AppError("STORAGE_FAILED");
     if (this.runner.busy || this.mutationPending) throw new AppError("BUSY");
   }
@@ -168,7 +170,9 @@ export class WorkspaceService {
     }
   }
 
-  async flush(): Promise<void> {
+  async shutdown(): Promise<void> {
+    this.stopping = true;
+    await this.runner.stop();
     await this.pendingRunSave;
   }
 
