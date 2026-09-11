@@ -3,7 +3,6 @@ import {
   automationInstanceSchema,
   type DesktopBridge,
   type DesktopRequest,
-  draftSchema,
   errorCodeSchema,
   IPC,
   instanceUpdateSchema,
@@ -28,7 +27,6 @@ async function request(input: DesktopRequest): Promise<unknown> {
 
 const bridge: DesktopBridge = {
   getWorkspace: async () => workspaceSchema.parse(await request({ method: "workspace.get" })),
-  saveDraft: async (source) => draftSchema.parse(await request({ method: "draft.save", source })),
   createProfile: async (name) =>
     profileSchema.parse(await request({ method: "profiles.create", name })),
   selectProfile: async (id) => {

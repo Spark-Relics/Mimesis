@@ -12,7 +12,6 @@ import {
   type WorkspaceSnapshot,
 } from "@clawler/contracts";
 import { resolveWorkflow, ScriptRegistry } from "@clawler/script-registry";
-import publishedSource from "@clawler/script-registry/sample-source";
 import type { StoredState, WorkspaceRepository } from "@clawler/storage";
 import { TaskRunner } from "@clawler/workflow-core";
 import type { BrowserWindow } from "electron";
@@ -61,11 +60,11 @@ export class WorkspaceService {
         updatedAt: now,
       };
       state = {
-        schemaVersion: 2,
+        schemaVersion: 3,
         instances: [instance],
         profiles: [profile],
         selectedProfileId: profile.id,
-        draft: { source: publishedSource, updatedAt: now },
+
         runs: [],
       };
     }
@@ -227,14 +226,7 @@ export class WorkspaceService {
         return {
           ...structuredClone(this.state),
           scripts: this.registry.list(),
-          publishedSource,
         } satisfies WorkspaceSnapshot;
-      }
-      case "draft.save": {
-        this.assertIdle();
-        const draft = { source: request.source, updatedAt: new Date().toISOString() };
-        await this.updateState({ ...this.state, draft });
-        return draft;
       }
       case "profiles.create": {
         this.assertIdle();

@@ -1,5 +1,5 @@
-import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   AppError,
   type GatewayJob,
@@ -7,29 +7,13 @@ import {
   gatewayJobSchema,
   gatewayStateSchema,
 } from "@clawler/contracts";
+import { atomicWrite } from "@clawler/storage/atomic-file";
 import { cleanResult, serializeResult } from "./results";
 
 export interface GatewayRepository {
   load(): Promise<GatewayState | undefined>;
   save(state: GatewayState): Promise<void>;
   archive(job: GatewayJob): Promise<void>;
-}
-
-async function atomicWrite(file: string, content: string): Promise<void> {
-  await mkdir(dirname(file), { recursive: true });
-  const temporary = `${file}.${crypto.randomUUID()}.tmp`;
-  try {
-    const handle = await open(temporary, "wx", 0o600);
-    try {
-      await handle.writeFile(content, "utf8");
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-    await rename(temporary, file);
-  } finally {
-    await rm(temporary, { force: true });
-  }
 }
 
 /** Single-writer repository. Queue acknowledgment follows the atomic durable write. */

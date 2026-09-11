@@ -1,7 +1,8 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
+import { atomicWrite } from "./atomic-file";
 import { JsonWorkspaceRepository, type StoredState } from "./index";
 
 const profile = {
@@ -10,7 +11,7 @@ const profile = {
   createdAt: "2026-09-06T00:00:00.000Z",
 };
 const initial: StoredState = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   instances: [
     {
       id: "00000000-0000-4000-8000-000000000002",
@@ -25,19 +26,97 @@ const initial: StoredState = {
   ],
   profiles: [profile],
   selectedProfileId: profile.id,
-  draft: { source: "initial", updatedAt: profile.createdAt },
   runs: [],
 };
 
-it("serializes writes and preserves the latest draft on disk", async () => {
+it("backs up legacy source and preserves workflows while removing the obsolete live draft", async () => {
+  const path = join(await mkdtemp(join(tmpdir(), "clawler-store-")), "state.json");
+  const expected: StoredState = {
+    ...initial,
+    instances: initial.instances.map((instance) => ({
+      ...instance,
+      scriptId: "collection-workflow",
+      workflow: {
+        version: 1,
+        before: [],
+        extract: {
+          items: ".row",
+          fields: [{ name: "title", selector: ".title", attribute: "text", required: true }],
+        },
+        pagination: { next: ".next", maxPages: 3 },
+        waitTimeoutMs: 5000,
+        maxRecords: 200,
+      },
+    })),
+  };
+  const original = JSON.stringify({
+    ...expected,
+    schemaVersion: 2,
+    draft: { source: "unpublished legacy content", updatedAt: profile.createdAt },
+  });
+  await writeFile(path, original);
+  const repository = new JsonWorkspaceRepository(path);
+  const migrated = await repository.load();
+  expect(migrated).toEqual(expected);
+  expect(await readFile(`${path}.v2.backup.json`, "utf8")).toBe(original);
+  expect(await repository.load()).toEqual(expected);
+  if (!migrated) throw new Error("Missing migration");
+  await repository.save(migrated);
+  expect(await readFile(path, "utf8")).not.toContain("draft");
+  expect(await readFile(`${path}.v2.backup.json`, "utf8")).toBe(original);
+});
+
+it("refuses unknown future formats and never overwrites a conflicting migration backup", async () => {
+  const path = join(await mkdtemp(join(tmpdir(), "clawler-store-")), "state.json");
+  const repository = new JsonWorkspaceRepository(path);
+  await writeFile(path, JSON.stringify({ ...initial, schemaVersion: 4 }));
+  await expect(repository.load()).rejects.toThrow("STORAGE_FAILED");
+  const original = JSON.stringify({ ...initial, schemaVersion: 2 });
+  await writeFile(path, original);
+  await writeFile(`${path}.v2.backup.json`, "different backup");
+  await expect(repository.load()).rejects.toThrow("STORAGE_FAILED");
+  expect(await readFile(path, "utf8")).toBe(original);
+  expect(await readFile(`${path}.v2.backup.json`, "utf8")).toBe("different backup");
+});
+
+it("rejects malformed ownership rather than reassigning a historical run", async () => {
+  const path = join(await mkdtemp(join(tmpdir(), "clawler-store-")), "state.json");
+  const run = {
+    id: crypto.randomUUID(),
+    instanceId: "invalid",
+    scriptId: "page-inspector",
+    version: "1.0.0",
+    profileId: profile.id,
+    status: "succeeded",
+    startedAt: profile.createdAt,
+    finishedAt: profile.createdAt,
+    steps: [],
+    result: null,
+    errorCode: null,
+  };
+  await writeFile(path, JSON.stringify({ ...initial, schemaVersion: 2, runs: [run] }));
+  await expect(new JsonWorkspaceRepository(path).load()).rejects.toThrow("STORAGE_FAILED");
+});
+
+it("cleans temporary files when replacing the destination fails", async () => {
+  const root = await mkdtemp(join(tmpdir(), "clawler-atomic-"));
+  const destination = join(root, "directory");
+  await mkdir(destination);
+  await writeFile(join(destination, "keep"), "original");
+  await expect(atomicWrite(destination, "replacement")).rejects.toThrow();
+  expect(await readdir(root)).toEqual(["directory"]);
+  expect(await readFile(join(destination, "keep"), "utf8")).toBe("original");
+});
+
+it("serializes writes and preserves the latest profile configuration on disk", async () => {
   const path = join(await mkdtemp(join(tmpdir(), "clawler-store-")), "state.json");
   const repository = new JsonWorkspaceRepository(path);
   expect(await repository.load()).toBeUndefined();
   await Promise.all([
     repository.save(initial),
-    repository.save({ ...initial, draft: { ...initial.draft, source: "updated" } }),
+    repository.save({ ...initial, profiles: [{ ...profile, name: "updated" }] }),
   ]);
-  expect((await repository.load())?.draft.source).toBe("updated");
+  expect((await repository.load())?.profiles[0]?.name).toBe("updated");
 });
 
 it("reports corrupt state without silently overwriting it", async () => {
@@ -56,13 +135,13 @@ it("migrates a version 1 workspace into an instance-owned workspace", async () =
       schemaVersion: 1,
       profiles: [profile],
       selectedProfileId: profile.id,
-      draft: initial.draft,
+      draft: { source: "old draft", updatedAt: profile.createdAt },
       runs: [],
     }),
     "utf8",
   );
   const migrated = await new JsonWorkspaceRepository(path).load();
-  expect(migrated?.schemaVersion).toBe(2);
+  expect(migrated?.schemaVersion).toBe(3);
   expect(migrated?.instances).toHaveLength(1);
   expect(migrated?.instances[0]?.profileId).toBe(profile.id);
 });
@@ -81,7 +160,11 @@ it("repairs transition data whose runs predate instance ownership", async () => 
     result: null,
     errorCode: null,
   };
-  await writeFile(path, JSON.stringify({ ...initial, runs: [legacyRun] }), "utf8");
+  await writeFile(
+    path,
+    JSON.stringify({ ...initial, schemaVersion: 2, runs: [legacyRun] }),
+    "utf8",
+  );
   const migrated = await new JsonWorkspaceRepository(path).load();
   expect(migrated?.runs[0]?.instanceId).toBe(initial.instances[0]?.id);
 });

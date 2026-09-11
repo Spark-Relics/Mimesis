@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { type ElectronApplication, expect, test } from "@playwright/test";
 
@@ -16,6 +16,31 @@ test("real browser, script execution, profile isolation, persistence and localiz
 }, testInfo) => {
   const dataDirectory = testInfo.outputPath("user-data");
   await mkdir(dataDirectory, { recursive: true });
+  const legacyProfile = {
+    id: crypto.randomUUID(),
+    name: "Default",
+    createdAt: new Date().toISOString(),
+  };
+  const legacy = {
+    schemaVersion: 2,
+    profiles: [legacyProfile],
+    selectedProfileId: legacyProfile.id,
+    instances: [
+      {
+        id: crypto.randomUUID(),
+        name: "Page inspector",
+        scriptId: "page-inspector",
+        profileId: legacyProfile.id,
+        targetUrl: "clawler-demo://catalog/",
+        enabled: true,
+        createdAt: legacyProfile.createdAt,
+        updatedAt: legacyProfile.createdAt,
+      },
+    ],
+    draft: { source: "legacy source preserved in backup only", updatedAt: legacyProfile.createdAt },
+    runs: [],
+  };
+  await writeFile(resolve(dataDirectory, "workspace.json"), JSON.stringify(legacy));
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
       (entry): entry is [string, string] => typeof entry[1] === "string",
@@ -28,6 +53,21 @@ test("real browser, script execution, profile isolation, persistence and localiz
   let application = await launch();
   try {
     let page = await workbenchPage(application);
+    await expect
+      .poll(
+        async () =>
+          JSON.parse(await readFile(resolve(dataDirectory, "workspace.json"), "utf8"))
+            .schemaVersion,
+      )
+      .toBe(3);
+    expect(
+      JSON.parse(await readFile(resolve(dataDirectory, "workspace.json.v2.backup.json"), "utf8")),
+    ).toEqual(legacy);
+    expect(
+      await page.evaluate(async () =>
+        Object.hasOwn((await window.clawler?.getWorkspace()) ?? {}, "draft"),
+      ),
+    ).toBe(false);
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await expect(page.locator(".window-controls button")).toHaveCount(3);
@@ -151,6 +191,11 @@ test("real browser, script execution, profile isolation, persistence and localiz
       .locator(".profile-card")
       .filter({ has: page.getByRole("heading", { name: "Profile B", exact: true }) });
     await newProfile.getByRole("button", { name: "切换到此环境" }).click();
+    await expect
+      .poll(
+        async () => (await page.evaluate(() => window.clawler?.getWorkspace()))?.selectedProfileId,
+      )
+      .not.toBe(initial?.selectedProfileId);
     const profiles = await page.evaluate(() => window.clawler?.getWorkspace());
     expect(profiles?.profiles).toHaveLength(2);
     const originalId = initial?.selectedProfileId;

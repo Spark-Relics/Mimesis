@@ -1,8 +1,23 @@
 import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { parse } from "@babel/parser";
+import { dependencyErrors, importError } from "./architecture-policy.mjs";
 
 const errors = [];
+const manifests = new Map();
+for (const directory of ["apps", "packages"]) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const root = join(directory, entry.name);
+    const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+    manifests.set(root.replaceAll("\\", "/"), manifest);
+  }
+}
+errors.push(
+  ...dependencyErrors(
+    [...manifests].filter(([path]) => path.startsWith("packages/")).map(([, manifest]) => manifest),
+  ),
+);
 async function files(directory) {
   const found = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -32,6 +47,9 @@ for (const file of [...(await files("apps")), ...(await files("packages"))]) {
   if (file.endsWith(".tsx")) plugins.push("jsx");
   const ast = parse(source, { sourceType: "module", plugins });
   const portable = file.replaceAll("\\", "/");
+  const packageRoot = portable.split("/").slice(0, 2).join("/");
+  const manifest = manifests.get(packageRoot);
+  const production = !/\.test(?:-support)?\.tsx?$/u.test(file);
   const report = (node, message) => errors.push(`${portable}:${node.loc?.start.line}: ${message}`);
   walk(ast, (node) => {
     if (node.type === "ConditionalExpression")
@@ -49,8 +67,32 @@ for (const file of [...(await files("apps")), ...(await files("packages"))]) {
     ) {
       report(node, "Translate user-facing attributes with useI18n().");
     }
-    if (node.type !== "ImportDeclaration") return;
+    if (
+      !["ImportDeclaration", "ExportNamedDeclaration", "ExportAllDeclaration"].includes(
+        node.type,
+      ) ||
+      !node.source
+    )
+      return;
     const imported = node.source.value;
+    if (production && manifest) {
+      const violation = importError(
+        manifest.name,
+        imported,
+        manifest,
+        packageRoot.startsWith("apps/"),
+      );
+      if (violation) report(node, violation);
+      if (imported.startsWith(".")) {
+        const target = resolve(file, "..", imported);
+        const outside = relative(resolve(packageRoot), target);
+        if (outside === ".." || outside.startsWith(`..${sep}`))
+          report(
+            node,
+            "Cross-package relative imports are prohibited; use the package's public exports.",
+          );
+      }
+    }
     if (!portable.startsWith("packages/i18n/") && ["i18next", "react-i18next"].includes(imported))
       report(node, "Import @clawler/i18n instead of bypassing the internationalization wrapper.");
     if (
@@ -70,4 +112,7 @@ for (const file of [...(await files("apps")), ...(await files("packages"))]) {
 if (errors.length) {
   console.error(errors.join("\n"));
   process.exitCode = 1;
-} else console.log("Architecture and i18n conventions passed: no ternaries or inline JSX copy.");
+} else
+  console.log(
+    "Architecture and i18n conventions passed: package graph, declared imports, no ternaries or inline JSX copy.",
+  );

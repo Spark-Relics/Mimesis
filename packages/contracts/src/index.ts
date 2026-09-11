@@ -239,20 +239,12 @@ export const scriptManifestSchema = z.object({
   implementation: z.literal("bundled"),
 });
 export type ScriptManifest = z.infer<typeof scriptManifestSchema>;
-export const draftSchema = z.object({
-  source: z.string().max(100_000),
-  updatedAt: z.string().datetime(),
-});
-export type ScriptDraft = z.infer<typeof draftSchema>;
-
 export const workspaceSchema = z.object({
   instances: z.array(automationInstanceSchema),
   profiles: z.array(profileSchema).min(1),
   selectedProfileId: z.string().uuid(),
-  draft: draftSchema,
   runs: z.array(runSchema),
   scripts: z.array(scriptManifestSchema),
-  publishedSource: z.string(),
 });
 export type WorkspaceSnapshot = z.infer<typeof workspaceSchema>;
 
@@ -269,7 +261,6 @@ export type WindowControl = z.infer<typeof windowControlSchema>;
 
 export const requestSchema = z.discriminatedUnion("method", [
   z.object({ method: z.literal("workspace.get") }),
-  z.object({ method: z.literal("draft.save"), source: z.string().max(100_000) }),
   z.object({ method: z.literal("profiles.create"), name: z.string().trim().min(1).max(64) }),
   z.object({ method: z.literal("profiles.select"), id: z.string().uuid() }),
   z.object({ method: z.literal("instances.create"), name: z.string().trim().min(1).max(64) }),
@@ -301,7 +292,6 @@ export type RpcResult<T> = { ok: true; value: T } | { ok: false; error: ErrorCod
 
 export interface DesktopBridge {
   getWorkspace(): Promise<WorkspaceSnapshot>;
-  saveDraft(source: string): Promise<ScriptDraft>;
   createProfile(name: string): Promise<Profile>;
   selectProfile(id: string): Promise<void>;
   createInstance(name: string): Promise<AutomationInstance>;

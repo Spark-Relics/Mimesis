@@ -208,6 +208,9 @@ importers:
       '@clawler/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@clawler/storage':
+        specifier: workspace:*
+        version: link:../storage
 
   packages/i18n:
     dependencies:

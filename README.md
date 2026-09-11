@@ -1,5 +1,7 @@
 # Mimesis
 
+The full enterprise orchestration and portability scope, design requirements, module boundaries and acceptance gates are tracked in the [engineering plan](docs/engineering-plan.md).
+
 [简体中文](README.zh-CN.md) · English
 
 Mimesis is a local-first, script-first browser automation desktop runtime built with Electron. It turns real browser sessions into isolated automation instances that can navigate websites, run reusable scripts, retain account state, and produce structured results.

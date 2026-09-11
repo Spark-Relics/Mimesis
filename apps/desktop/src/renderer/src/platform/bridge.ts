@@ -1,5 +1,4 @@
 import { AppError, type DesktopBridge, type WorkspaceSnapshot } from "@clawler/contracts";
-import publishedSource from "@clawler/script-registry/sample-source";
 
 /** Web preview is explicitly non-executing; it never pretends a task succeeded. */
 function createPreviewBridge(): DesktopBridge {
@@ -24,8 +23,7 @@ function createPreviewBridge(): DesktopBridge {
     profiles: [profile],
     selectedProfileId: profile.id,
     runs: [],
-    publishedSource,
-    draft: { source: publishedSource, updatedAt: new Date().toISOString() },
+
     scripts: [
       {
         id: "page-inspector",
@@ -41,10 +39,6 @@ function createPreviewBridge(): DesktopBridge {
   }
   return {
     getWorkspace: async () => structuredClone(snapshot),
-    saveDraft: async (source) => {
-      snapshot.draft = { source, updatedAt: new Date().toISOString() };
-      return snapshot.draft;
-    },
     createProfile: async () => desktopRequired(),
     selectProfile: async () => desktopRequired(),
     createInstance: async () => desktopRequired(),

@@ -19,6 +19,7 @@ describe("browser and IPC boundaries", () => {
     }
   });
   it("rejects malformed command data and unknown commands", () => {
+    expect(requestSchema.safeParse({ method: "draft.save", source: "unused" }).success).toBe(false);
     expect(requestSchema.safeParse({ method: "shell.exec", command: "whoami" }).success).toBe(
       false,
     );
