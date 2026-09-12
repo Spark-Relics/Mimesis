@@ -41,6 +41,10 @@ const bridge: DesktopBridge = {
     storageLocationSchema.parse(await request({ method: "storage.schedule", path })),
   cancelStorageDirectory: async () =>
     storageLocationSchema.parse(await request({ method: "storage.cancel" })),
+  scheduleStorageBackup: async (kind, path) =>
+    storageLocationSchema.parse(await request({ method: "storage.backup.schedule", kind, path })),
+  cancelStorageBackup: async () =>
+    storageLocationSchema.parse(await request({ method: "storage.backup.cancel" })),
   getWorkspace: async () => workspaceSchema.parse(await request({ method: "workspace.get" })),
   createProfile: async (name) =>
     profileSchema.parse(await request({ method: "profiles.create", name })),

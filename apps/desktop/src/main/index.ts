@@ -117,6 +117,10 @@ async function createWindow(): Promise<void> {
             return { ok: true, value: await location.schedule(request.path) };
           case "storage.cancel":
             return { ok: true, value: await location.cancel() };
+          case "storage.backup.schedule":
+            return { ok: true, value: await location.scheduleBackup(request) };
+          case "storage.backup.cancel":
+            return { ok: true, value: await location.cancelBackup() };
           case "storage.choose": {
             const selected = await dialog.showOpenDialog(window, {
               properties: ["openDirectory", "createDirectory"],

@@ -23,6 +23,20 @@ export const zhCN = {
   storagePending: "目录变更已保存。下次启动前可取消；本次运行仍使用当前目录。",
   storageExit: "退出应用",
   storageCancelled: "目录变更已取消。",
+  storageBackupTitle: "备份与恢复",
+  storageBackupDescription: "在下次启动时创建完整备份，或从已验证的备份恢复到新目录。",
+  storageBackupTarget: "备份目录",
+  storageBackupCreate: "安排备份",
+  storageBackupRestoreFrom: "恢复来源目录",
+  storageBackupRestore: "安排恢复",
+  storageBackupCancel: "取消备份计划",
+  storageBackupHint:
+    "备份会在下次启动时复制并校验全部数据；原目录保持不变。恢复会把备份内容复制到原目录旁边的新目录，并在启动完成后切换过去。",
+  storageBackupPending: "备份计划已保存。下次启动前可取消；本次运行不受影响。",
+  storageBackupPendingRestore:
+    "恢复计划已保存。下次启动会把备份恢复到新目录并切换；当前数据目录不会被删除。",
+  storageBackupDone: "备份已完成。",
+  storageBackupCancelled: "备份计划已取消。",
   storageStartupTitle: "无法打开数据目录",
   storageStartupHint:
     "未启用新的数据目录，原数据保留。检查目录权限、可用空间与占用情况后重试；也可取消待执行的目录变更后重新启动。",
@@ -311,6 +325,22 @@ export const enUS: Record<MessageKey, string> = {
     "Directory change saved. You can cancel before the next launch; this session continues using the current directory.",
   storageExit: "Exit application",
   storageCancelled: "Directory change cancelled.",
+  storageBackupTitle: "Backup & restore",
+  storageBackupDescription:
+    "Schedule a full backup for the next launch, or restore from a verified backup.",
+  storageBackupTarget: "Backup directory",
+  storageBackupCreate: "Schedule backup",
+  storageBackupRestoreFrom: "Restore source directory",
+  storageBackupRestore: "Schedule restore",
+  storageBackupCancel: "Cancel scheduled backup",
+  storageBackupHint:
+    "A backup copies and verifies all data on the next launch; the original directory is untouched. A restore copies the backup into a new directory beside the current one and switches to it after startup.",
+  storageBackupPending:
+    "Backup scheduled. You can cancel before the next launch; this session is unaffected.",
+  storageBackupPendingRestore:
+    "Restore scheduled. The next launch restores the backup into a new directory and switches to it; the current data directory is never deleted.",
+  storageBackupDone: "Backup completed.",
+  storageBackupCancelled: "Backup plan cancelled.",
   storageStartupTitle: "Unable to open data directory",
   storageStartupHint:
     "The new directory was not activated. Original data is kept. Check permissions, free space and directory ownership, then retry; or cancel the pending change and start again.",

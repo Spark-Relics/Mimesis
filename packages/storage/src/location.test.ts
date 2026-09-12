@@ -39,7 +39,13 @@ it("schedules, cancels, then migrates all files on startup and preserves origina
   }
   manager = new StorageLocationManager(configuration, source);
   try {
-    expect(manager.info()).toEqual({ current: target, source: "configuration", pending: null });
+    expect(manager.info()).toEqual({
+      current: target,
+      source: "configuration",
+      pending: null,
+      pendingBackup: null,
+      pendingBackupKind: null,
+    });
     expect(fs.readFileSync(join(target, "runtime", "test.json"), "utf8")).toBe(
       fs.readFileSync(join(source, "runtime", "test.json"), "utf8"),
     );

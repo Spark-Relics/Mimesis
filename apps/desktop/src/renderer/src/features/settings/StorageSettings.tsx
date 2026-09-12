@@ -18,10 +18,17 @@ const scope = [
   { icon: Globe2, title: "storageBrowser", hint: "storageBrowserHint" },
 ] as const;
 
+const backupNoticeKeys: Record<"backup" | "restore", MessageKey> = {
+  backup: "storageBackupPending",
+  restore: "storageBackupPendingRestore",
+};
+
 export function StorageSettings() {
   const { t } = useI18n();
   const [location, setLocation] = useState<StorageLocation>();
   const [destination, setDestination] = useState("");
+  const [backupPath, setBackupPath] = useState("");
+  const [restorePath, setRestorePath] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<MessageKey>();
   const [notice, setNotice] = useState<MessageKey>();
@@ -57,6 +64,10 @@ export function StorageSettings() {
     }
   }
   const locked = busy || location?.source === "environment";
+  const planLocked =
+    locked ||
+    Boolean(location?.pending) ||
+    (location?.pendingBackupKind !== undefined && location.pendingBackupKind !== null);
   return (
     <Panel className="storage-settings" aria-busy={busy}>
       <header className="storage-heading">
@@ -113,6 +124,110 @@ export function StorageSettings() {
           </dl>
           {location.source === "environment" && (
             <p className="storage-hint">{t("storageEnvironmentHint")}</p>
+          )}
+          {location.source !== "environment" && (
+            <section className="storage-backup">
+              <h3>{t("storageBackupTitle")}</h3>
+              <p className="storage-hint">{t("storageBackupDescription")}</p>
+              {location.pendingBackup && (
+                <div className="storage-pending" role="status">
+                  <strong>{t(backupNoticeKeys[location.pendingBackupKind ?? "backup"])}</strong>
+                  <code>{location.pendingBackup}</code>
+                </div>
+              )}
+              {!location.pendingBackup && (
+                <>
+                  <label htmlFor="storage-backup-target">{t("storageBackupTarget")}</label>
+                  <div className="storage-path-row">
+                    <input
+                      id="storage-backup-target"
+                      value={backupPath}
+                      disabled={planLocked}
+                      spellCheck={false}
+                      onChange={(event) => setBackupPath(event.target.value)}
+                    />
+                    <Button
+                      disabled={planLocked}
+                      onClick={() =>
+                        void action(async () => {
+                          const path = await bridge.chooseStorageDirectory();
+                          if (path) setBackupPath(path);
+                        })
+                      }
+                    >
+                      {t("storageBrowse")}
+                    </Button>
+                    <Button
+                      tone="primary"
+                      disabled={planLocked || !backupPath.trim()}
+                      onClick={() =>
+                        void action(async () => {
+                          setLocation(await bridge.scheduleStorageBackup("backup", backupPath));
+                          setNotice("storageBackupDone");
+                        })
+                      }
+                    >
+                      {t("storageBackupCreate")}
+                    </Button>
+                  </div>
+                  <label htmlFor="storage-backup-restore">{t("storageBackupRestoreFrom")}</label>
+                  <div className="storage-path-row">
+                    <input
+                      id="storage-backup-restore"
+                      value={restorePath}
+                      disabled={planLocked}
+                      spellCheck={false}
+                      onChange={(event) => setRestorePath(event.target.value)}
+                    />
+                    <Button
+                      disabled={planLocked}
+                      onClick={() =>
+                        void action(async () => {
+                          const path = await bridge.chooseStorageDirectory();
+                          if (path) setRestorePath(path);
+                        })
+                      }
+                    >
+                      {t("storageBrowse")}
+                    </Button>
+                    <Button
+                      tone="primary"
+                      disabled={planLocked || !restorePath.trim()}
+                      onClick={() =>
+                        void action(async () => {
+                          setLocation(await bridge.scheduleStorageBackup("restore", restorePath));
+                          setNotice("storageBackupPendingRestore");
+                        })
+                      }
+                    >
+                      {t("storageBackupRestore")}
+                    </Button>
+                  </div>
+                  <p className="storage-hint">{t("storageBackupHint")}</p>
+                </>
+              )}
+              {location.pendingBackup && (
+                <div className="storage-actions">
+                  <Button
+                    disabled={busy}
+                    onClick={() =>
+                      void action(async () => {
+                        setLocation(await bridge.cancelStorageBackup());
+                        setNotice("storageBackupCancelled");
+                      })
+                    }
+                  >
+                    {t("storageBackupCancel")}
+                  </Button>
+                  <Button
+                    disabled={busy}
+                    onClick={() => void action(() => bridge.controlWindow("close"))}
+                  >
+                    {t("storageExit")}
+                  </Button>
+                </div>
+              )}
+            </section>
           )}
           {location.source !== "environment" && (
             <>

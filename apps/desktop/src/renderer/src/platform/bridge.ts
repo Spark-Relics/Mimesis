@@ -43,6 +43,8 @@ function createPreviewBridge(): DesktopBridge {
     openStorageDirectory: async () => desktopRequired(),
     scheduleStorageDirectory: async () => desktopRequired(),
     cancelStorageDirectory: async () => desktopRequired(),
+    scheduleStorageBackup: async () => desktopRequired(),
+    cancelStorageBackup: async () => desktopRequired(),
     getWorkspace: async () => structuredClone(snapshot),
     createProfile: async () => desktopRequired(),
     selectProfile: async () => desktopRequired(),

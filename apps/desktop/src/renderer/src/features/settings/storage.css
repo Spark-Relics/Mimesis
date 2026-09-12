@@ -73,6 +73,19 @@
 .storage-hint {
   margin-top: 12px;
 }
+.storage-backup {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.storage-backup h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.storage-backup label {
+  margin-top: 14px;
+}
 .storage-pending {
   padding: 16px;
   margin-top: 16px;

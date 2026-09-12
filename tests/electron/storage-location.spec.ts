@@ -91,7 +91,8 @@ test("custom directory migrates workspace, SQLite and browser cookies with rever
     await page.locator("#storage-destination").fill(target);
     await page.locator("#storage-destination").focus();
     await page.keyboard.press("Tab");
-    await expect(page.getByRole("button", { name: "选择文件夹", exact: true })).toBeFocused();
+    // The browse button directly follows the migration input in tab order.
+    await expect(page.locator("div:has(> #storage-destination) button").first()).toBeFocused();
     await page.getByRole("button", { name: "保存目录变更", exact: true }).click();
     await expect(page.locator(".storage-pending code")).toHaveText(target);
     await page.getByRole("button", { name: "取消目录变更", exact: true }).click();

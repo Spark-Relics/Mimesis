@@ -266,6 +266,8 @@ export const storageLocationSchema = z.object({
   current: z.string(),
   source: z.enum(["default", "configuration", "environment"]),
   pending: z.string().nullable(),
+  pendingBackup: z.string().nullable(),
+  pendingBackupKind: z.enum(["backup", "restore"]).nullable(),
 });
 export type StorageLocation = z.infer<typeof storageLocationSchema>;
 
@@ -276,6 +278,12 @@ export const requestSchema = z.discriminatedUnion("method", [
   z.object({ method: z.literal("storage.open") }),
   z.object({ method: z.literal("storage.schedule"), path: z.string().trim().min(1).max(4096) }),
   z.object({ method: z.literal("storage.cancel") }),
+  z.object({
+    method: z.literal("storage.backup.schedule"),
+    kind: z.enum(["backup", "restore"]),
+    path: z.string().trim().min(1).max(4096),
+  }),
+  z.object({ method: z.literal("storage.backup.cancel") }),
   z.object({ method: z.literal("profiles.create"), name: z.string().trim().min(1).max(64) }),
   z.object({ method: z.literal("profiles.select"), id: z.string().uuid() }),
   z.object({ method: z.literal("instances.create"), name: z.string().trim().min(1).max(64) }),
@@ -311,6 +319,8 @@ export interface DesktopBridge {
   openStorageDirectory(): Promise<void>;
   scheduleStorageDirectory(path: string): Promise<StorageLocation>;
   cancelStorageDirectory(): Promise<StorageLocation>;
+  scheduleStorageBackup(kind: "backup" | "restore", path: string): Promise<StorageLocation>;
+  cancelStorageBackup(): Promise<StorageLocation>;
   getWorkspace(): Promise<WorkspaceSnapshot>;
   createProfile(name: string): Promise<Profile>;
   selectProfile(id: string): Promise<void>;
