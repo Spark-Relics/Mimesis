@@ -29,6 +29,8 @@ AI is an optional authoring and recovery layer. A published script should contin
 - Run lifecycle events, cancellation, timeout handling, and the latest 50 run records
 - SQLite transactions in a dedicated worker, normalized runtime tables, and backed-up legacy JSON migration
 - Custom storage directory in Preferences, with verified copying on next launch and the original workspace retained
+- Offline workspace backup and restore with per-file SHA-256 receipts; restore lands in a fresh directory and never overwrites the current workspace
+- Gateway retention: oldest terminal jobs evicted beyond 1000 entries or 2 GiB of archived artifacts, with fail-closed deletion
 - Authenticated local HTTP gateway with idempotent submission, queuing, cancellation, and restart recovery
 - Per-instance gateway job archives and cleaned JSON, CSV, and NDJSON exports
 - Simplified Chinese and English UI resources
