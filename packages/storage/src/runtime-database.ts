@@ -181,20 +181,18 @@ export class RuntimeDatabase {
     const profiles = this.db
       .prepare("SELECT id,name,createdAt FROM profiles ORDER BY position")
       .all();
-    const instances = this.db
-      .prepare("SELECT * FROM instances ORDER BY position")
-      .all()
-      .map((row) => {
-        const value: Record<string, unknown> = { ...row, enabled: row.enabled === 1 };
-        delete value.position;
-        delete value.workflow;
-        if (row.workflow !== null) value.workflow = parseJson(row.workflow);
-        return value;
-      });
-    const runs = this.db
-      .prepare("SELECT runId FROM workspace_runs ORDER BY position")
-      .all()
-      .map((row) => this.loadRun(String(row.runId)));
+    const instances = (
+      this.db.prepare("SELECT * FROM instances ORDER BY position").all() as Row[]
+    ).map((row) => {
+      const value: Record<string, unknown> = { ...row, enabled: row.enabled === 1 };
+      delete value.position;
+      delete value.workflow;
+      if (row.workflow !== null) value.workflow = parseJson(row.workflow);
+      return value;
+    });
+    const runs = (
+      this.db.prepare("SELECT runId FROM workspace_runs ORDER BY position").all() as Row[]
+    ).map((row) => this.loadRun(String(row.runId)));
     return stateSchema.parse({
       schemaVersion: 3,
       profiles,
@@ -203,12 +201,41 @@ export class RuntimeDatabase {
       selectedProfileId: this.setting("selectedProfileId"),
     });
   }
-  private writeGateway(input: GatewayState, artifacts: Artifact[]) {
+  private writeGateway(input: GatewayState, artifacts: Artifact[], evicted: string[]) {
     const state = gatewayStateSchema.parse(input);
-    // Queue ordering is immutable for existing jobs; removing history is a separate retention operation.
-    const existingIds = this.db.prepare("SELECT id FROM gateway_jobs").all();
+    // Queue ordering is immutable for existing jobs; removal happens only through explicit retention eviction.
+    const existingIds = new Set(
+      (this.db.prepare("SELECT id FROM gateway_jobs").all() as Row[]).map((row) => String(row.id)),
+    );
     const ids = new Set(state.jobs.map((job) => job.id));
-    if (existingIds.some((row) => !ids.has(String(row.id)))) throw new AppError("STORAGE_FAILED");
+    for (const job of evicted) {
+      if (!existingIds.has(job) || ids.has(job)) throw new AppError("STORAGE_FAILED");
+      const row = this.db.prepare("SELECT status FROM gateway_jobs WHERE id=?").get(job) as
+        | Row
+        | undefined;
+      if (!row || row.status === "queued" || row.status === "running")
+        throw new AppError("STORAGE_FAILED");
+    }
+    if ([...existingIds].some((id) => !ids.has(id) && !evicted.includes(id)))
+      throw new AppError("STORAGE_FAILED");
+    const evict = this.db.prepare(
+      "DELETE FROM gateway_jobs WHERE id=? AND status IN ('succeeded','failed','cancelled')",
+    );
+    for (const job of evicted) {
+      // Artifacts rows cascade; the shared run row is dropped when no job or workspace view references it.
+      const orphaned = this.db
+        .prepare(
+          "SELECT runId FROM gateway_jobs WHERE id=? AND runId IS NOT NULL AND runId NOT IN (SELECT runId FROM workspace_runs)",
+        )
+        .get(job) as Row | undefined;
+      evict.run(job);
+      if (orphaned?.runId)
+        this.db
+          .prepare(
+            "DELETE FROM runs WHERE id=? AND id NOT IN (SELECT runId FROM gateway_jobs) AND id NOT IN (SELECT runId FROM workspace_runs)",
+          )
+          .run(String(orphaned.runId));
+    }
     state.jobs.forEach((job, position) => {
       if (
         job.run &&
@@ -264,6 +291,14 @@ export class RuntimeDatabase {
       });
     return gatewayStateSchema.parse({ schemaVersion: 1, jobs });
   }
+  private readArtifacts(): Artifact[] {
+    return (this.db.prepare("SELECT * FROM artifacts ORDER BY path").all() as Row[]).map((row) => ({
+      jobId: String(row.jobId),
+      path: String(row.path),
+      bytes: Number(row.bytes),
+      sha256: String(row.sha256),
+    }));
+  }
   dispatch(input: RuntimeCommand): unknown {
     const command = runtimeCommandSchema.parse(input);
     switch (command.method) {
@@ -273,7 +308,7 @@ export class RuntimeDatabase {
         return this.transaction(() => {
           if (this.setting("initialized")) return null;
           if (command.workspace) this.writeWorkspace(command.workspace);
-          if (command.gateway) this.writeGateway(command.gateway, command.artifacts ?? []);
+          if (command.gateway) this.writeGateway(command.gateway, command.artifacts ?? [], []);
           this.setSetting("initialized", "1");
           return null;
         });
@@ -286,9 +321,11 @@ export class RuntimeDatabase {
         });
       case "gateway.load":
         return this.readGateway();
+      case "artifacts.load":
+        return this.readArtifacts();
       case "gateway.save":
         return this.transaction(() => {
-          this.writeGateway(command.state, command.artifacts);
+          this.writeGateway(command.state, command.artifacts, command.evicted ?? []);
           return null;
         });
       case "close":

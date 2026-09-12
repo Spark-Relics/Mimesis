@@ -4,7 +4,12 @@ import { Worker } from "node:worker_threads";
 import { AppError, type GatewayState, gatewayStateSchema, z } from "@clawler/contracts";
 import type { WorkspaceRepository } from "./index";
 import { legacySnapshot } from "./legacy-import";
-import { type Artifact, type RuntimeCommand, runtimeResponseSchema } from "./runtime-protocol";
+import {
+  type Artifact,
+  artifactSchema,
+  type RuntimeCommand,
+  runtimeResponseSchema,
+} from "./runtime-protocol";
 import { type StoredState, stateSchema } from "./state";
 
 type Pending = {
@@ -91,8 +96,20 @@ export class RuntimeStore implements WorkspaceRepository {
     if (state === null) return undefined;
     return gatewayStateSchema.parse(state);
   }
-  async saveGateway(state: GatewayState, artifacts: Artifact[]): Promise<void> {
-    await this.send({ method: "gateway.save", state: gatewayStateSchema.parse(state), artifacts });
+  async loadArtifacts(): Promise<Artifact[]> {
+    return z.array(artifactSchema).parse(await this.send({ method: "artifacts.load" }));
+  }
+  async saveGateway(
+    state: GatewayState,
+    artifacts: Artifact[],
+    evicted: string[] = [],
+  ): Promise<void> {
+    await this.send({
+      method: "gateway.save",
+      state: gatewayStateSchema.parse(state),
+      artifacts,
+      evicted,
+    });
   }
   close(): Promise<void> {
     if (!this.closing) {

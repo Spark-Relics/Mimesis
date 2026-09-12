@@ -27,7 +27,9 @@ export const runtimeCommandSchema = z.discriminatedUnion("method", [
     method: z.literal("gateway.save"),
     state: gatewayStateSchema,
     artifacts: z.array(artifactSchema).max(4000),
+    evicted: z.array(z.string().uuid()).max(1000).optional(),
   }),
+  z.object({ method: z.literal("artifacts.load") }),
   z.object({ method: z.literal("close") }),
 ]);
 export type RuntimeCommand = z.infer<typeof runtimeCommandSchema>;

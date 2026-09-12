@@ -1,4 +1,10 @@
-import type { GatewayExecution, GatewayState, Run } from "@clawler/contracts";
+import {
+  AppError,
+  type GatewayExecution,
+  type GatewayJob,
+  type GatewayState,
+  type Run,
+} from "@clawler/contracts";
 import { vi } from "vitest";
 import type { GatewayRepository } from "./repository";
 
@@ -24,9 +30,9 @@ export function completedRun(): Run {
     scriptId: execution.instance.scriptId,
     version: execution.scriptVersion,
     status: "succeeded",
+    steps: [],
     startedAt: new Date().toISOString(),
     finishedAt: new Date().toISOString(),
-    steps: [],
     errorCode: null,
     result: {
       title: " Catalog ",
@@ -39,14 +45,21 @@ export function completedRun(): Run {
 
 export function memoryRepository(
   initial?: GatewayState,
-): GatewayRepository & { stored: GatewayState | undefined } {
+): GatewayRepository & { stored: GatewayState | undefined; bytesByJob: Map<string, number> } {
   const repository = {
     stored: initial,
+    bytesByJob: new Map<string, number>(),
     load: vi.fn(async () => structuredClone(repository.stored)),
-    save: vi.fn(async (state: GatewayState) => {
+    save: vi.fn(async (state: GatewayState, evicted: string[] = []) => {
+      for (const job of evicted)
+        if (!repository.bytesByJob.delete(job)) throw new AppError("STORAGE_FAILED");
       repository.stored = structuredClone(state);
     }),
-    archive: vi.fn(async () => undefined),
+    archive: vi.fn(async (job: GatewayJob) => {
+      repository.bytesByJob.set(job.id, 1024);
+    }),
+    // Mirrors the durable repository: bytes stay queryable until the archive is actually evicted.
+    artifactBytesByJob: vi.fn(() => new Map(repository.bytesByJob)),
   };
   return repository;
 }

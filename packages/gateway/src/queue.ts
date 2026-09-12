@@ -26,6 +26,13 @@ export interface GatewayExecutor {
   execute(execution: GatewayExecution, signal: AbortSignal): Promise<Run>;
 }
 
+export interface GatewayQueueOptions {
+  maxPending?: number;
+  maxStored?: number;
+  /** Byte budget for archived artifacts; oldest terminal jobs are evicted once exceeded. */
+  maxArtifactBytes?: number;
+}
+
 export class GatewayQueue {
   private writes: Promise<unknown> = Promise.resolve();
   private worker: Promise<void> | undefined;
@@ -40,12 +47,13 @@ export class GatewayQueue {
     private state: GatewayState,
     private readonly maxPending: number,
     private readonly maxStored: number,
+    private readonly maxArtifactBytes: number,
   ) {}
 
   static async open(
     repository: GatewayRepository,
     executor: GatewayExecutor,
-    options: { maxPending?: number; maxStored?: number } = {},
+    options: GatewayQueueOptions = {},
   ): Promise<GatewayQueue> {
     const state = (await repository.load()) ?? { schemaVersion: 1, jobs: [] };
     // An interrupted browser action may have had side effects. Never replay it automatically.
@@ -56,13 +64,15 @@ export class GatewayQueue {
       job.finishedAt = new Date().toISOString();
       await repository.archive(job);
     }
+    const maxStored = options.maxStored ?? 1000;
     await repository.save(state);
     return new GatewayQueue(
       repository,
       executor,
       state,
       options.maxPending ?? 100,
-      options.maxStored ?? 1000,
+      maxStored,
+      options.maxArtifactBytes ?? 2 * 1024 * 1024 * 1024,
     );
   }
 
@@ -73,6 +83,7 @@ export class GatewayQueue {
   }
 
   health() {
+    const bytes = this.repository.artifactBytesByJob();
     return {
       ready: !this.closing && !this.storageFailed,
       queued: this.state.jobs.filter((job) => job.status === "queued").length,
@@ -80,6 +91,8 @@ export class GatewayQueue {
       stored: this.state.jobs.length,
       maxPending: this.maxPending,
       maxStored: this.maxStored,
+      artifactBytes: [...bytes.values()].reduce((total, value) => total + value, 0),
+      maxArtifactBytes: this.maxArtifactBytes,
       concurrency: 1,
     };
   }
@@ -104,14 +117,41 @@ export class GatewayQueue {
       if (this.storageFailed) throw new AppError("STORAGE_FAILED");
       const next = structuredClone(this.state);
       const result = await mutate(next);
+      // Retention: evict oldest terminal jobs so the durable history stays bounded.
+      const evicted: string[] = [];
+      const evictable = (job: GatewayJob) =>
+        !evicted.includes(job.id) && job.status !== "queued" && job.status !== "running";
+      const bytesByJob = this.repository.artifactBytesByJob();
+      const bytes = (jobs: GatewayJob[]) =>
+        jobs.reduce((total, job) => total + (bytesByJob.get(job.id) ?? 0), 0);
+      while (
+        next.jobs.length - evicted.length > this.maxStored &&
+        next.jobs.length > evicted.length
+      ) {
+        const victim = next.jobs.find(evictable);
+        if (!victim) break;
+        evicted.push(victim.id);
+      }
+      // Disk quota: keep evicting oldest terminal jobs until the archive budget fits.
+      let archiveBytes = bytes(next.jobs.filter((job) => !evicted.includes(job.id)));
+      while (archiveBytes > this.maxArtifactBytes) {
+        const victim = next.jobs.find(evictable);
+        if (!victim) break;
+        evicted.push(victim.id);
+        archiveBytes -= bytesByJob.get(victim.id) ?? 0;
+      }
+      const remaining = next.jobs.filter((job) => !evicted.includes(job.id));
+      // Keeping every job means the mutated snapshot is already the next durable state.
+      let persisted: GatewayState = next;
+      if (remaining.length !== next.jobs.length) persisted = { schemaVersion: 1, jobs: remaining };
       try {
-        await this.repository.save(next);
+        await this.repository.save(persisted, evicted);
       } catch (error) {
         this.storageFailed = true;
         this.active?.controller.abort(new AppError("STORAGE_FAILED"));
         throw error;
       }
-      this.state = next;
+      this.state = persisted;
       return structuredClone(result);
     });
     this.writes = operation.catch(() => undefined);
@@ -139,7 +179,11 @@ export class GatewayQueue {
       const pending = next.jobs.filter(
         (job) => job.status === "queued" || job.status === "running",
       ).length;
-      if (pending >= this.maxPending || next.jobs.length >= this.maxStored)
+      if (pending >= this.maxPending) throw new GatewayError("QUEUE_FULL");
+      if (
+        next.jobs.length >= this.maxStored &&
+        !next.jobs.some((job) => job.status !== "queued" && job.status !== "running")
+      )
         throw new GatewayError("QUEUE_FULL");
       const execution = gatewayExecutionSchema.parse(this.executor.resolve(submission));
       const job: GatewayJob = {

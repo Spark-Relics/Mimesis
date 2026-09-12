@@ -33,16 +33,48 @@ describe("durable browser job queue", () => {
     await queue.close();
   });
 
-  it("enforces backpressure, cancels queued jobs and keeps terminal history", async () => {
+  it("rejects submissions while pending capacity is exhausted", async () => {
     const queue = await GatewayQueue.open(memoryRepository(), executor(), {
       maxPending: 1,
-      maxStored: 2,
+      maxStored: 10,
     });
     const first = await queue.submit(submission);
     await expect(queue.submit(submission)).rejects.toThrow("QUEUE_FULL");
     expect((await queue.cancel(first.job.id)).status).toBe("cancelled");
     await queue.submit(submission);
     expect(queue.list().total).toBe(2);
+    await queue.close();
+  });
+
+  it("rejects when stored capacity is filled entirely by unfinished jobs", async () => {
+    const queue = await GatewayQueue.open(memoryRepository(), executor(), { maxStored: 2 });
+    await queue.submit(submission);
+    await queue.submit(submission);
+    await expect(queue.submit(submission)).rejects.toThrow("QUEUE_FULL");
+    expect(queue.list().total).toBe(2);
+    await queue.close();
+  });
+
+  it("evicts the oldest terminal jobs beyond maxStored and never unfinished ones", async () => {
+    const repository = memoryRepository();
+    const evictedOnDisk: string[] = [];
+    vi.mocked(repository.save).mockImplementation(async (state, evicted = []) => {
+      for (const id of evicted ?? []) evictedOnDisk.push(id);
+      repository.stored = structuredClone(state);
+    });
+    const queue = await GatewayQueue.open(repository, executor(), { maxPending: 10, maxStored: 2 });
+    const first = await queue.submit(submission);
+    queue.start();
+    await vi.waitFor(() => expect(queue.get(first.job.id).status).toBe("succeeded"));
+    const second = await queue.submit(submission);
+    const third = await queue.submit(submission);
+    await vi.waitFor(() => expect(queue.get(third.job.id).status).toBe("succeeded"));
+    // first was evicted when the third job committed; stored history stays bounded.
+    expect(queue.list().total).toBe(2);
+    expect(queue.list().jobs.map((job) => job.id)).toEqual([third.job.id, second.job.id]);
+    expect(evictedOnDisk).toEqual([first.job.id]);
+    expect(() => queue.get(first.job.id)).toThrow("NOT_FOUND");
+    expect(repository.stored?.jobs).toHaveLength(2);
     await queue.close();
   });
 
@@ -127,6 +159,51 @@ describe("durable browser job queue", () => {
     queue.start();
     await vi.waitFor(() => expect(queue.health().ready).toBe(false));
     expect(repository.stored?.jobs[0]?.status).toBe("running");
+    await queue.close();
+  });
+
+  it("evicts oldest terminal jobs when archived bytes exceed the disk quota", async () => {
+    const repository = memoryRepository();
+    // Each archived job accounts for 1024 bytes through the memory repository.
+    const queue = await GatewayQueue.open(repository, executor(), {
+      maxPending: 10,
+      maxStored: 10,
+      maxArtifactBytes: 2048,
+    });
+    queue.start();
+    const first = await queue.submit(submission);
+    await vi.waitFor(() => expect(queue.get(first.job.id).status).toBe("succeeded"));
+    const second = await queue.submit(submission);
+    await vi.waitFor(() => expect(queue.get(second.job.id).status).toBe("succeeded"));
+    // Two archived jobs fit the 2048-byte budget exactly.
+    expect(queue.list().total).toBe(2);
+    expect(queue.health().artifactBytes).toBe(2048);
+    const third = await queue.submit(submission);
+    await vi.waitFor(() => expect(queue.get(third.job.id).status).toBe("succeeded"));
+    // The third archive exceeds the budget, so the oldest terminal job is evicted.
+    expect(queue.list().total).toBe(2);
+    expect(queue.list().jobs.map((job) => job.id)).toEqual([third.job.id, second.job.id]);
+    expect(() => queue.get(first.job.id)).toThrow("NOT_FOUND");
+    expect(queue.health().artifactBytes).toBe(2048);
+    await queue.close();
+  });
+
+  it("fails closed when retention eviction cannot delete an archive it cannot account for", async () => {
+    const repository = memoryRepository();
+    const queue = await GatewayQueue.open(repository, executor(), {
+      maxPending: 10,
+      maxStored: 1,
+    });
+    queue.start();
+    const first = await queue.submit(submission);
+    await vi.waitFor(() => expect(queue.get(first.job.id).status).toBe("succeeded"));
+    // Simulate a manifest this process cannot account for after a restart.
+    repository.bytesByJob.delete(first.job.id);
+    await expect(queue.submit(submission)).rejects.toThrow("STORAGE_FAILED");
+    expect(queue.health().ready).toBe(false);
+    expect(() => queue.list()).toThrow("STORAGE_FAILED");
+    // The durable state never claimed the eviction happened.
+    expect(repository.stored?.jobs.map((job) => job.id)).toContain(first.job.id);
     await queue.close();
   });
 });
