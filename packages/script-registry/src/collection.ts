@@ -50,12 +50,18 @@ export async function collectPages(
   const workflow = resolveWorkflow(input.workflow, input.parameters);
   const browser = ctx.browser.automation;
   await ctx.step("navigate", () => ctx.browser.navigate(input.url, ctx.signal), input.url);
-  for (const action of workflow.before)
+  for (const action of workflow.before) {
+    const label = `${action.kind}: ${action.selector}`;
+    if (action.when && !(await browser.exists(action.when.exists, ctx.signal))) {
+      ctx.skip(action.kind, `${label} (missing: ${action.when.exists})`);
+      continue;
+    }
     await ctx.step(
       action.kind,
       () => browser.act(action, workflow.waitTimeoutMs, ctx.signal),
-      `${action.kind}: ${action.selector}`,
+      label,
     );
+  }
   const records: Array<Record<string, string>> = [];
   const seen = new Set<string>();
   let signature: string | undefined;
@@ -111,7 +117,7 @@ export async function collectPages(
       break;
     }
     if (!workflow.pagination) break;
-    if (!(await browser.hasNext(workflow.pagination.next, ctx.signal))) {
+    if (!(await browser.exists(workflow.pagination.next, ctx.signal))) {
       stopReason = "next-unavailable";
       break;
     }

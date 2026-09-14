@@ -1,17 +1,20 @@
 import { type ErrorCode, errorCodeSchema, type Run, type StepKind } from "@clawler/contracts";
 import type { MessageKey } from "@clawler/i18n";
 
-export const statusKeys: Record<Run["status"], MessageKey> = {
+/** Covers run states plus the `skipped` step state, which no run ever has. */
+export const statusKeys: Record<Run["status"] | "skipped", MessageKey> = {
   running: "statusRunning",
   succeeded: "statusSucceeded",
   failed: "statusFailed",
   cancelled: "statusCancelled",
+  skipped: "statusSkipped",
 };
 export const statusTones = {
   running: "accent",
   succeeded: "success",
   failed: "danger",
   cancelled: "neutral",
+  skipped: "neutral",
 } as const;
 export const stepKeys: Record<StepKind, MessageKey> = {
   navigate: "stepNavigate",

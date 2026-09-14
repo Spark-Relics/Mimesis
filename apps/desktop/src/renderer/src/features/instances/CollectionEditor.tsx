@@ -82,6 +82,21 @@ export function CollectionEditor({
                 disabled={disabled}
                 onChange={(event) => action(index, { ...entry, selector: event.target.value })}
               />
+              <input
+                aria-label={t("flowCondition")}
+                placeholder={t("flowConditionPlaceholder")}
+                value={entry.when?.exists ?? ""}
+                disabled={disabled}
+                onChange={(event) => {
+                  // An empty field means "always run", so the condition is dropped rather than left invalid.
+                  const condition = event.target.value;
+                  if (!condition) {
+                    action(index, { ...entry, when: undefined });
+                    return;
+                  }
+                  action(index, { ...entry, when: { exists: condition } });
+                }}
+              />
               {entry.kind === "fill" && (
                 <input
                   aria-label={t("flowValue")}

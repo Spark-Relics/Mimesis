@@ -209,7 +209,7 @@ export class BrowserAutomation implements BrowserAutomationPort {
     }
   }
 
-  async hasNext(selector: string, signal: AbortSignal): Promise<boolean> {
+  async exists(selector: string, signal: AbortSignal): Promise<boolean> {
     const result = await this.evaluate(
       this.contents(),
       `(${locate.toString()})(${JSON.stringify(selector)},false,false,true)`,

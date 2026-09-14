@@ -18,16 +18,23 @@ const recipe: CollectionWorkflow = {
   maxRecords: 10,
 };
 
-function fixture(pages: Array<Array<Record<string, string>>>, sameUrl = false) {
+function fixture(
+  pages: Array<Array<Record<string, string>>>,
+  sameUrl = false,
+  present?: readonly string[],
+) {
   let index = 0;
   const controller = new AbortController();
-  const steps: Array<{ kind: StepKind; detail: string | undefined }> = [];
+  const steps: Array<{ kind: StepKind; detail: string | undefined; skipped: boolean }> = [];
   const automation = {
     act: vi.fn(async (action: { kind: string; selector: string }) => {
       if (action.selector === ".next") index++;
     }),
     extract: vi.fn(async () => pages[index] ?? []),
-    hasNext: vi.fn(async () => index < pages.length - 1),
+    exists: vi.fn(async (selector: string) => {
+      if (present) return present.includes(selector);
+      return index < pages.length - 1;
+    }),
   };
   const ctx: ScriptContext = {
     signal: controller.signal,
@@ -41,8 +48,11 @@ function fixture(pages: Array<Array<Record<string, string>>>, sameUrl = false) {
       }),
     },
     async step(kind, action, detail) {
-      steps.push({ kind, detail });
+      steps.push({ kind, detail, skipped: false });
       return action();
+    },
+    skip(kind, detail) {
+      steps.push({ kind, detail, skipped: true });
     },
   };
   return { ctx, automation, controller, steps };
@@ -102,6 +112,39 @@ describe("reusable collection interpreter", () => {
       ".item",
       undefined,
     ]);
+  });
+
+  it("runs only the conditional actions whose element is present and records the rest as skipped", async () => {
+    const { ctx, automation, steps } = fixture([[{ name: "A" }]], false, ["#search"]);
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [
+        { kind: "click", selector: "#cookie", when: { exists: "#cookie-banner" } },
+        { kind: "fill", selector: "#search", value: "{{query}}", when: { exists: "#search" } },
+        { kind: "click", selector: "#submit" },
+      ],
+      pagination: null,
+    };
+    const result = await collectPages(ctx, {
+      url: "https://example.com",
+      workflow,
+      parameters: { query: "hello" },
+    });
+    expect(result.records).toEqual([{ name: "A" }]);
+    expect(automation.act.mock.calls.map(([action]) => action.selector)).toEqual([
+      "#search",
+      "#submit",
+    ]);
+    expect(steps.map(({ kind, skipped }) => ({ kind, skipped }))).toEqual([
+      { kind: "navigate", skipped: false },
+      { kind: "click", skipped: true },
+      { kind: "fill", skipped: false },
+      { kind: "click", skipped: false },
+      { kind: "extract", skipped: false },
+      { kind: "inspect", skipped: false },
+    ]);
+    // The skipped step names the unmet condition instead of claiming success.
+    expect(steps[1]?.detail).toBe("click: #cookie (missing: #cookie-banner)");
   });
 
   it("waits for asynchronously replaced rows instead of collecting stale content twice", async () => {

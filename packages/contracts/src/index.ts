@@ -60,14 +60,25 @@ export const profileSchema = z.object({
 export type Profile = z.infer<typeof profileSchema>;
 
 const selectorSchema = z.string().trim().min(1).max(2048);
+/** Bounded precondition: the action runs only when the selector is present on the page. */
+export const workflowConditionSchema = z.strictObject({ exists: selectorSchema });
 export const workflowActionSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("fill"),
     selector: selectorSchema,
     value: z.string().max(8000),
+    when: workflowConditionSchema.optional(),
   }),
-  z.strictObject({ kind: z.literal("click"), selector: selectorSchema }),
-  z.strictObject({ kind: z.literal("wait"), selector: selectorSchema }),
+  z.strictObject({
+    kind: z.literal("click"),
+    selector: selectorSchema,
+    when: workflowConditionSchema.optional(),
+  }),
+  z.strictObject({
+    kind: z.literal("wait"),
+    selector: selectorSchema,
+    when: workflowConditionSchema.optional(),
+  }),
 ]);
 export const extractionSchema = z
   .strictObject({
@@ -103,6 +114,7 @@ export const collectionWorkflowSchema = z.strictObject({
 });
 export type CollectionWorkflow = z.infer<typeof collectionWorkflowSchema>;
 export type WorkflowAction = z.infer<typeof workflowActionSchema>;
+export type WorkflowCondition = z.infer<typeof workflowConditionSchema>;
 export const recordingSchema = z.object({
   url: z.string(),
   actions: z.array(workflowActionSchema).max(20),
@@ -180,7 +192,7 @@ export const stepKindSchema = z.enum(["navigate", "inspect", "fill", "click", "w
 export const stepSchema = z.object({
   id: z.string(),
   kind: stepKindSchema,
-  status: z.enum(["running", "succeeded", "failed", "cancelled"]),
+  status: z.enum(["running", "succeeded", "failed", "cancelled", "skipped"]),
   startedAt: z.string().datetime(),
   finishedAt: z.string().datetime().nullable(),
   /** Bounded, non-secret context such as the URL or selector the step acted on. */

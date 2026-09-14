@@ -1,7 +1,7 @@
 import type { Run } from "@clawler/contracts";
 import { useI18n } from "@clawler/i18n";
 import { Badge, Button, EmptyState, Panel } from "@clawler/ui";
-import { Check, CircleDashed, Copy, FileJson2, ListChecks } from "lucide-react";
+import { Check, CircleDashed, Copy, FileJson2, ListChecks, Minus } from "lucide-react";
 import { useState } from "react";
 import { errorKeys, statusKeys, statusTones, stepKeys } from "../../shared/presentation";
 
@@ -78,7 +78,8 @@ export function RunResult({ run, onCopyError }: { run: Run | undefined; onCopyEr
           {run.steps.map((step) => (
             <div className={`step step--${step.status}`} key={step.id}>
               <span className="step-dot">
-                <Check size={10} />
+                {step.status === "skipped" && <Minus size={10} />}
+                {step.status !== "skipped" && <Check size={10} />}
               </span>
               <span>{t(stepKeys[step.kind])}</span>
               {step.detail && <code className="step-detail">{step.detail}</code>}

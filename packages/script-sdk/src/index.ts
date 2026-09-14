@@ -10,7 +10,8 @@ import type {
 export interface BrowserAutomationPort {
   act(action: WorkflowAction, timeoutMs: number, signal: AbortSignal): Promise<void>;
   extract(input: Extraction, signal: AbortSignal): Promise<Array<Record<string, string>>>;
-  hasNext(selector: string, signal: AbortSignal): Promise<boolean>;
+  /** Presence check used both for pagination and for `when.exists` conditions. */
+  exists(selector: string, signal: AbortSignal): Promise<boolean>;
 }
 
 /** All browser capabilities are mediated by the host; scripts never receive WebContents. */
@@ -24,6 +25,8 @@ export interface ScriptContext {
   readonly signal: AbortSignal;
   readonly browser: BrowserPort;
   step<T>(kind: StepKind, action: () => Promise<T>, detail?: string): Promise<T>;
+  /** Records a step that was deliberately not executed, so evidence matches what happened. */
+  skip(kind: StepKind, detail?: string): void;
 }
 
 export interface ScriptInput {

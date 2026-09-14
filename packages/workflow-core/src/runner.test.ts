@@ -131,4 +131,25 @@ describe("script-only task runtime", () => {
     expect(run.steps[1]?.detail).toBe("click: .next");
     expect(run.steps.map((step) => step.errorCode)).toEqual([null, "TIMEOUT"]);
   });
+
+  it("records a skipped step as neither success nor failure so the run stays diagnosable", async () => {
+    const conditional: ScriptDefinition = {
+      manifest: script.manifest,
+      async execute(ctx) {
+        ctx.skip("click", "click: #cookie (missing: #cookie-banner)");
+        return ctx.step("inspect", () => ctx.browser.inspect(ctx.signal));
+      },
+    };
+    const runner = new TaskRunner({ navigate: async () => undefined, inspect: async () => result });
+    const finished = completion(runner);
+    runner.start(conditional, { url: DEMO_URL }, profileId, instanceId);
+    const run = await finished;
+    expect(run.status).toBe("succeeded");
+    expect(run.steps.map((step) => [step.kind, step.status])).toEqual([
+      ["click", "skipped"],
+      ["inspect", "succeeded"],
+    ]);
+    expect(run.steps[0]?.errorCode).toBeNull();
+    expect(run.steps[0]?.finishedAt).not.toBeNull();
+  });
 });

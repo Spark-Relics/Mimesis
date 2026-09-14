@@ -134,13 +134,22 @@ it("round trips normalized workspace, shared runs, step ordering and gateway ide
       detail: "https://example.test/catalog",
       errorCode: null,
     },
+    {
+      id: "conditional",
+      kind: "click",
+      status: "skipped",
+      startedAt: run.startedAt,
+      finishedAt: run.startedAt,
+      detail: "click: #cookie (missing: #cookie-banner)",
+      errorCode: null,
+    },
   ];
   state.runs = [run, { ...run, id: crypto.randomUUID() }];
   db.dispatch({ method: "initialize", workspace: state, gateway: queue });
   expect(db.dispatch({ method: "workspace.load" })).toEqual(state);
   expect(db.dispatch({ method: "gateway.load" })).toEqual(queue);
   expect(inspection.prepare("SELECT COUNT(*) AS count FROM runs").get()?.count).toBe(2);
-  expect(inspection.prepare("SELECT COUNT(*) AS count FROM steps").get()?.count).toBe(2);
+  expect(inspection.prepare("SELECT COUNT(*) AS count FROM steps").get()?.count).toBe(4);
   expect(inspection.prepare("SELECT idempotencyKey FROM gateway_jobs").get()?.idempotencyKey).toBe(
     "request-1",
   );

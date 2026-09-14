@@ -824,6 +824,10 @@ body {
   color: #b84a56;
   background: #ffeaed;
 }
+.step--skipped .step-dot {
+  color: #8b93a1;
+  background: #eef0f3;
+}
 .step-detail {
   max-width: 46%;
   overflow: hidden;

@@ -1,4 +1,11 @@
-import { AppError, documentSchema, type Run, type StepKind, toErrorCode } from "@clawler/contracts";
+import {
+  AppError,
+  documentSchema,
+  type Run,
+  type StepKind,
+  type StepRecord,
+  toErrorCode,
+} from "@clawler/contracts";
 import type {
   BrowserPort,
   ScriptContext,
@@ -100,23 +107,33 @@ export class TaskRunner {
       Math.min(script.timeoutMs ?? this.timeoutMs, 300_000),
     );
     const { signal } = controller;
+    const record = (kind: StepKind, detail?: string): StepRecord => {
+      const step: StepRecord = {
+        id: crypto.randomUUID(),
+        kind,
+        status: "running",
+        startedAt: new Date().toISOString(),
+        finishedAt: null,
+        detail: (detail ?? "").slice(0, 300),
+        errorCode: null,
+      };
+      run.steps.push(step);
+      return step;
+    };
     const context: ScriptContext = {
       signal,
       browser: this.browser,
+      skip: (kind: StepKind, detail?: string): void => {
+        if (signal.aborted) return;
+        const current = record(kind, detail);
+        // A skipped action never ran, so it is neither success nor failure.
+        current.status = "skipped";
+        current.finishedAt = current.startedAt;
+        this.emit(run);
+      },
       step: async <T>(kind: StepKind, action: () => Promise<T>, detail?: string): Promise<T> => {
         signal.throwIfAborted();
-        const step = {
-          id: crypto.randomUUID(),
-          kind,
-          status: "running" as const,
-          startedAt: new Date().toISOString(),
-          finishedAt: null,
-          detail: (detail ?? "").slice(0, 300),
-          errorCode: null,
-        };
-        run.steps.push(step);
-        const current = run.steps[run.steps.length - 1];
-        if (!current) throw new AppError("INTERNAL");
+        const current = record(kind, detail);
         this.emit(run);
         try {
           const value = await abortable(action(), signal);
