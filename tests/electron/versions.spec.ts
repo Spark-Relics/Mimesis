@@ -78,9 +78,9 @@ test("publish freezes content, blocks unpublished runs and keeps already accepte
     );
 
     // Unpublished content must never execute.
-    await expect(
-      ui.evaluate((id) => window.clawler?.startRun(id), instance.id),
-    ).rejects.toThrow("NO_PUBLISHED_VERSION");
+    await expect(ui.evaluate((id) => window.clawler?.startRun(id), instance.id)).rejects.toThrow(
+      "NO_PUBLISHED_VERSION",
+    );
 
     const first = await ui.evaluate((id) => window.clawler?.publishWorkflow(id), instance.id);
     if (!first) throw new Error("Missing published version");
@@ -92,10 +92,9 @@ test("publish freezes content, blocks unpublished runs and keeps already accepte
     const again = await ui.evaluate((id) => window.clawler?.publishWorkflow(id), instance.id);
     expect(again?.id).toBe(first.id);
 
-    const run = await ui.evaluate(
-      ({ id }) => window.clawler?.startRun(id, { keyword: "alpha" }),
-      { id: instance.id },
-    );
+    const run = await ui.evaluate(({ id }) => window.clawler?.startRun(id, { keyword: "alpha" }), {
+      id: instance.id,
+    });
     await expect
       .poll(() => ui.evaluate(async () => (await window.clawler?.getWorkspace())?.runs[0]?.status))
       .toBe("succeeded");
