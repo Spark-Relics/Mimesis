@@ -5,7 +5,7 @@ import {
   type DocumentSnapshot,
   workflowParametersSchema,
 } from "@clawler/contracts";
-import type { ScriptContext, ScriptInput } from "@clawler/script-sdk";
+import type { BrowserAutomationPort, ScriptContext, ScriptInput } from "@clawler/script-sdk";
 
 export function resolveWorkflow(
   input: CollectionWorkflow,
@@ -67,6 +67,7 @@ export async function collectPages(
   let previousUrl: string | undefined;
   let pages = 0;
   let bytes = 0;
+  let detailCapped = false;
   let stopReason: NonNullable<DocumentSnapshot["collection"]>["stopReason"] = "single-page";
   while (true) {
     ctx.signal.throwIfAborted();
@@ -111,6 +112,8 @@ export async function collectPages(
       added++;
     }
     if (stopReason === "record-limit") break;
+    // Detail traversal runs once per list page, before pagination advances.
+    detailCapped = (await traverseDetails(ctx, browser, workflow, rows, records)) || detailCapped;
     if (added === 0) {
       stopReason = "no-new-records";
       break;
@@ -144,7 +147,86 @@ export async function collectPages(
     collection: {
       pages,
       stopReason,
-      truncated: stopReason === "page-limit" || stopReason === "record-limit",
+      truncated: stopReason === "page-limit" || stopReason === "record-limit" || detailCapped,
     },
   };
+}
+
+/**
+ * Opens each list row's detail page in order, merges the extracted fields into the matching
+ * record, then returns to the list. Returns true when the configured item limit was reached.
+ */
+async function traverseDetails(
+  ctx: ScriptContext,
+  browser: BrowserAutomationPort,
+  workflow: CollectionWorkflow,
+  rows: Array<Record<string, string>>,
+  records: Array<Record<string, string>>,
+): Promise<boolean> {
+  const detail = workflow.detail;
+  if (!detail) return false;
+  const count = await browser.snapshotItems(workflow.extract.items, ctx.signal);
+  const limit = Math.min(count, detail.maxItems);
+  const keys = rows.map((row) => JSON.stringify(row));
+  for (let index = 0; index < limit; index++) {
+    ctx.signal.throwIfAborted();
+    const key = keys[index];
+    const target = records.find((entry) => JSON.stringify(entry) === key);
+    await ctx.step(
+      "click",
+      () =>
+        browser.actOnItem(
+          index,
+          { kind: "click", selector: detail.link },
+          workflow.waitTimeoutMs,
+          ctx.signal,
+        ),
+      `detail: ${detail.link}`,
+    );
+    const extracted = await ctx.step(
+      "extract",
+      async () => {
+        const deadline = Date.now() + workflow.waitTimeoutMs;
+        while (true) {
+          const current = await browser.extract(detail.extract, ctx.signal);
+          if (current.length) return current[0] ?? {};
+          if (Date.now() >= deadline) throw new AppError("TIMEOUT");
+          await pause(ctx.signal);
+        }
+      },
+      detail.extract.items,
+    );
+    if (target) Object.assign(target, extracted);
+    await ctx.step(
+      "navigate",
+      async () => {
+        const back = ctx.browser.goBack;
+        if (!back) {
+          // Without history support the workflow must supply an explicit return control.
+          if (!detail.back) throw new AppError("INVALID_INPUT");
+          await browser.act(
+            { kind: "click", selector: detail.back },
+            workflow.waitTimeoutMs,
+            ctx.signal,
+          );
+          return;
+        }
+        try {
+          await back.call(ctx.browser, ctx.signal);
+        } catch (error) {
+          // A profile with no usable history falls back to the configured back control.
+          if (!detail.back || !(error instanceof AppError) || error.code !== "INVALID_INPUT")
+            throw error;
+          await browser.act(
+            { kind: "click", selector: detail.back },
+            workflow.waitTimeoutMs,
+            ctx.signal,
+          );
+        }
+      },
+      detail.back ? `back: ${detail.back}` : "history back",
+    );
+    await pause(ctx.signal);
+  }
+  return count > detail.maxItems;
 }

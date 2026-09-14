@@ -1,6 +1,9 @@
 import { z } from "zod";
 
 export const DEMO_URL = "clawler-demo://catalog/";
+/** Local, app-served subtree that holds multi-page regression fixtures. */
+export const DEMO_ROOT = "clawler-demo://catalog/";
+export const DETAIL_DEMO_URL = "clawler-demo://catalog/detail/";
 export const IPC = { request: "clawler:request", runChanged: "clawler:run-changed" } as const;
 
 export const errorCodeSchema = z.enum([
@@ -48,7 +51,8 @@ export function validateNavigationUrl(value: string): string {
   }
   if (url.username || url.password) throw new AppError("INVALID_INPUT");
   if (url.protocol === "http:" || url.protocol === "https:") return url.href;
-  if (url.href === DEMO_URL) return url.href;
+  // The embedded fixture subtree is served locally by the host and never reaches the network.
+  if (url.protocol === "clawler-demo:" && url.href.startsWith(DEMO_ROOT)) return url.href;
   throw new AppError("FORBIDDEN");
 }
 
@@ -104,6 +108,17 @@ export const extractionSchema = z
       .max(20),
   })
   .refine((value) => new Set(value.fields.map((field) => field.name)).size === value.fields.length);
+/** Optional nested traversal: open each list row's detail page, extract fields, then return to the list. */
+export const detailSchema = z.strictObject({
+  /** Selector resolved *within* a list item that opens its detail page. */
+  link: selectorSchema,
+  /** Page-level extraction on the opened detail page; the first record is merged into the list row. */
+  extract: extractionSchema,
+  /** Control that returns to the list page. A real history entry is preferred when available. */
+  back: selectorSchema.optional(),
+  maxItems: z.number().int().min(1).max(500),
+});
+export type DetailTraversal = z.infer<typeof detailSchema>;
 export const collectionWorkflowSchema = z.strictObject({
   version: z.literal(1),
   before: z.array(workflowActionSchema).max(20),
@@ -114,6 +129,7 @@ export const collectionWorkflowSchema = z.strictObject({
       maxPages: z.number().int().min(1).max(50),
     })
     .nullable(),
+  detail: detailSchema.optional(),
   waitTimeoutMs: z.number().int().min(100).max(15_000),
   maxRecords: z.number().int().min(1).max(2000),
 });

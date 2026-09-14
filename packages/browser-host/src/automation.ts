@@ -10,9 +10,23 @@ import {
 import type { BrowserAutomationPort } from "@clawler/script-sdk";
 import type { WebContents } from "electron";
 
-function locate(selector: string, prepare: boolean, fill: boolean, unique: boolean) {
+function locate(
+  selector: string,
+  prepare: boolean,
+  fill: boolean,
+  unique: boolean,
+  scopeSelector?: string,
+) {
   try {
-    const matches = document.querySelectorAll(selector);
+    let root: ParentNode = document;
+    if (scopeSelector) {
+      const scope = document.querySelectorAll(scopeSelector);
+      if (scope.length !== 1) return { error: "INVALID_INPUT" };
+      const element = scope[0];
+      if (!(element instanceof HTMLElement)) return { ready: false };
+      root = element;
+    }
+    const matches = root.querySelectorAll(selector);
     if (unique && matches.length > 1) return { error: "INVALID_INPUT" };
     const node = matches[0];
     if (!(node instanceof HTMLElement)) return { ready: false };
@@ -89,6 +103,38 @@ function extractPage(input: Extraction) {
   }
 }
 
+/** Absolute `:nth-child` path, unique within the document, used to re-address a list item later. */
+function itemPath(node: Element): string {
+  const segments: string[] = [];
+  let current: Element | null = node;
+  while (current) {
+    let index = 1;
+    let sibling = current.previousElementSibling;
+    while (sibling) {
+      index++;
+      sibling = sibling.previousElementSibling;
+    }
+    segments.unshift(`${current.tagName.toLowerCase()}:nth-child(${index})`);
+    current = current.parentElement;
+  }
+  return segments.join(">");
+}
+
+function snapshotItemPaths(itemsSelector: string) {
+  try {
+    const items = Array.from(document.querySelectorAll(itemsSelector));
+    if (items.length > 2000) return { error: "INVALID_INPUT" };
+    const paths = items.map(itemPath);
+    for (const path of paths) {
+      // Re-addressable only if the generated path resolves to exactly this element.
+      if (!path || document.querySelectorAll(path).length !== 1) return { error: "INVALID_INPUT" };
+    }
+    return { paths };
+  } catch {
+    return { error: "INVALID_INPUT" };
+  }
+}
+
 export async function pause(signal: AbortSignal, milliseconds = 100): Promise<void> {
   signal.throwIfAborted();
   await new Promise<void>((resolve, reject) => {
@@ -106,6 +152,8 @@ export async function pause(signal: AbortSignal, milliseconds = 100): Promise<vo
 
 export class BrowserAutomation implements BrowserAutomationPort {
   constructor(private readonly contents: () => WebContents) {}
+  /** Absolute paths of the list items recorded by the most recent `snapshotItems` call. */
+  private itemSelectors: string[] = [];
 
   private async evaluate(
     contents: WebContents,
@@ -142,8 +190,12 @@ export class BrowserAutomation implements BrowserAutomationPort {
     );
   }
 
-  async act(input: WorkflowAction, timeoutMs: number, signal: AbortSignal): Promise<void> {
-    const action = workflowActionSchema.parse(input);
+  private async runAction(
+    action: WorkflowAction,
+    timeoutMs: number,
+    signal: AbortSignal,
+    scopeSelector?: string,
+  ): Promise<void> {
     const contents = this.contents();
     const deadline = Date.now() + timeoutMs;
     while (true) {
@@ -158,7 +210,7 @@ export class BrowserAutomation implements BrowserAutomationPort {
             .parse(
               await this.evaluate(
                 contents,
-                `(${locate.toString()})(${JSON.stringify(action.selector)},${action.kind !== "wait"},${action.kind === "fill"},${action.kind !== "wait"})`,
+                `(${locate.toString()})(${JSON.stringify(action.selector)},${action.kind !== "wait"},${action.kind === "fill"},${action.kind !== "wait"},${JSON.stringify(scopeSelector)})`,
                 signal,
               ),
             );
@@ -187,6 +239,43 @@ export class BrowserAutomation implements BrowserAutomationPort {
       }
       if (Date.now() >= deadline) throw new AppError("TIMEOUT");
       await pause(signal);
+    }
+  }
+
+  act(input: WorkflowAction, timeoutMs: number, signal: AbortSignal): Promise<void> {
+    return this.runAction(workflowActionSchema.parse(input), timeoutMs, signal);
+  }
+
+  async actOnItem(
+    index: number,
+    input: WorkflowAction,
+    timeoutMs: number,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const action = workflowActionSchema.parse(input);
+    const scopeSelector = this.itemSelectors[index];
+    if (scopeSelector === undefined) throw new AppError("NOT_FOUND");
+    await this.runAction(action, timeoutMs, signal, scopeSelector);
+  }
+
+  async snapshotItems(itemsSelector: string, signal: AbortSignal): Promise<number> {
+    const selector = z.string().trim().min(1).max(2048).parse(itemsSelector);
+    const contents = this.contents();
+    signal.throwIfAborted();
+    if (contents.isLoadingMainFrame()) return 0;
+    try {
+      const value = await this.evaluate(
+        contents,
+        `(${snapshotItemPaths.toString()})(${JSON.stringify(selector)})`,
+        signal,
+      );
+      const paths = z.object({ paths: z.array(z.string()).max(2000) }).parse(value).paths;
+      this.itemSelectors = paths;
+      return paths.length;
+    } catch (error) {
+      signal.throwIfAborted();
+      if (this.isNavigationError(error)) return 0;
+      throw error;
     }
   }
 

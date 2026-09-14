@@ -1,6 +1,7 @@
 import {
   type CollectionWorkflow,
   collectionWorkflowSchema,
+  type Extraction,
   type WorkflowAction,
 } from "@clawler/contracts";
 import { useI18n } from "@clawler/i18n";
@@ -44,6 +45,8 @@ export function CollectionEditor({
   const { t } = useI18n();
   const [source, setSource] = useState("");
   const [error, setError] = useState("");
+  // Detail traversal stays a single source of truth for both the toggle and its inputs.
+  const detail = workflow.detail;
   function action(index: number, next: WorkflowAction) {
     onChange({
       ...workflow,
@@ -188,135 +191,11 @@ export function CollectionEditor({
             }
           />
         </label>
-        <div className="extraction-fields">
-          <div className="extraction-head">
-            <span>{t("flowFieldName")}</span>
-            <span>{t("flowFieldSelector")}</span>
-            <span>{t("flowAttribute")}</span>
-            <span>{t("flowRequired")}</span>
-          </div>
-          {workflow.extract.fields.map((field, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: Controlled fields have editable names and no stable identity in the executable schema.
-            <div className="extraction-row" key={`field-${index}`}>
-              <input
-                aria-label={t("flowFieldName")}
-                value={field.name}
-                disabled={disabled}
-                onChange={(event) =>
-                  onChange({
-                    ...workflow,
-                    extract: {
-                      ...workflow.extract,
-                      fields: workflow.extract.fields.map((entry, at) => {
-                        if (at === index) return { ...entry, name: event.target.value };
-                        return entry;
-                      }),
-                    },
-                  })
-                }
-              />
-              <input
-                aria-label={t("flowFieldSelector")}
-                value={field.selector}
-                placeholder={t("flowFieldExample")}
-                disabled={disabled}
-                onChange={(event) =>
-                  onChange({
-                    ...workflow,
-                    extract: {
-                      ...workflow.extract,
-                      fields: workflow.extract.fields.map((entry, at) => {
-                        if (at === index) return { ...entry, selector: event.target.value };
-                        return entry;
-                      }),
-                    },
-                  })
-                }
-              />
-              <select
-                aria-label={t("flowAttribute")}
-                value={field.attribute}
-                disabled={disabled}
-                onChange={(event) => {
-                  const attribute = event.target.value as typeof field.attribute;
-                  onChange({
-                    ...workflow,
-                    extract: {
-                      ...workflow.extract,
-                      fields: workflow.extract.fields.map((entry, at) => {
-                        if (at === index) return { ...entry, attribute };
-                        return entry;
-                      }),
-                    },
-                  });
-                }}
-              >
-                {(["text", "href", "src", "value"] as const).map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="checkbox"
-                aria-label={t("flowRequired")}
-                checked={field.required}
-                disabled={disabled}
-                onChange={(event) =>
-                  onChange({
-                    ...workflow,
-                    extract: {
-                      ...workflow.extract,
-                      fields: workflow.extract.fields.map((entry, at) => {
-                        if (at === index) return { ...entry, required: event.target.checked };
-                        return entry;
-                      }),
-                    },
-                  })
-                }
-              />
-              <Button
-                tone="ghost"
-                aria-label={t("flowRemove")}
-                disabled={disabled || workflow.extract.fields.length <= 1}
-                onClick={() =>
-                  onChange({
-                    ...workflow,
-                    extract: {
-                      ...workflow.extract,
-                      fields: workflow.extract.fields.filter((_entry, at) => at !== index),
-                    },
-                  })
-                }
-              >
-                <Trash2 size={14} />
-              </Button>
-            </div>
-          ))}
-        </div>
-        <Button
-          disabled={disabled || workflow.extract.fields.length >= 20}
-          onClick={() =>
-            onChange({
-              ...workflow,
-              extract: {
-                ...workflow.extract,
-                fields: [
-                  ...workflow.extract.fields,
-                  {
-                    name: `field${workflow.extract.fields.length + 1}`,
-                    selector: "",
-                    attribute: "text",
-                    required: false,
-                  },
-                ],
-              },
-            })
-          }
-        >
-          <Plus size={13} />
-          {t("flowAddField")}
-        </Button>
+        <ExtractionFields
+          fields={workflow.extract.fields}
+          disabled={disabled}
+          onChange={(fields) => onChange({ ...workflow, extract: { ...workflow.extract, fields } })}
+        />
       </section>
       <section className="workflow-section loop-section">
         <div className="workflow-section-title">
@@ -404,6 +283,109 @@ export function CollectionEditor({
           </label>
         </div>
       </section>
+      <section className="workflow-section">
+        <div className="workflow-section-title">
+          <span>{"04"}</span>
+          <div>
+            <h2>{t("flowDetail")}</h2>
+            <p>{t("flowDetailHint")}</p>
+          </div>
+        </div>
+        <label className="workflow-check">
+          <input
+            type="checkbox"
+            checked={Boolean(detail)}
+            disabled={disabled}
+            onChange={(event) => {
+              let next: CollectionWorkflow["detail"] = undefined;
+              if (event.target.checked)
+                next = {
+                  link: "",
+                  extract: {
+                    items: "",
+                    fields: [{ name: "detail", selector: "", attribute: "text", required: false }],
+                  },
+                  maxItems: 10,
+                };
+              onChange({ ...workflow, detail: next });
+            }}
+          />
+          {t("flowEnableDetail")}
+        </label>
+        {detail && (
+          <div className="workflow-form-row">
+            <label className="workflow-field">
+              {t("flowDetailLink")}
+              <input
+                value={detail.link}
+                disabled={disabled}
+                placeholder={t("flowDetailLinkExample")}
+                onChange={(event) =>
+                  onChange({ ...workflow, detail: { ...detail, link: event.target.value } })
+                }
+              />
+            </label>
+            <label className="workflow-field short-field">
+              {t("flowDetailMaxItems")}
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={detail.maxItems}
+                disabled={disabled}
+                onChange={(event) =>
+                  onChange({
+                    ...workflow,
+                    detail: { ...detail, maxItems: Number(event.target.value) },
+                  })
+                }
+              />
+            </label>
+          </div>
+        )}
+        {detail && (
+          <>
+            <label className="workflow-field">
+              {t("flowDetailItems")}
+              <input
+                value={detail.extract.items}
+                disabled={disabled}
+                placeholder={t("flowItemsExample")}
+                onChange={(event) =>
+                  onChange({
+                    ...workflow,
+                    detail: { ...detail, extract: { ...detail.extract, items: event.target.value } },
+                  })
+                }
+              />
+            </label>
+            <label className="workflow-field">
+              {t("flowDetailBack")}
+              <input
+                value={detail.back ?? ""}
+                disabled={disabled}
+                placeholder={t("flowDetailBackPlaceholder")}
+                onChange={(event) => {
+                  // An empty field means "use browser history", so the key is dropped instead of stored empty.
+                  const back = event.target.value;
+                  onChange({ ...workflow, detail: { ...detail, back: back || undefined } });
+                }}
+              />
+            </label>
+            <ExtractionFields
+              fields={detail.extract.fields}
+              disabled={disabled}
+              onChange={(fields) =>
+                onChange({
+                  ...workflow,
+                  detail: { ...detail, extract: { ...detail.extract, fields } },
+                })
+              }
+            />
+          </>
+        )}
+      </section>
+
       <details
         className="workflow-section"
         onToggle={(event) => {
@@ -436,5 +418,106 @@ export function CollectionEditor({
         {error && <p role="alert">{error}</p>}
       </details>
     </div>
+  );
+}
+
+
+/** Shared field editor so list and detail extraction keep identical behaviour and markup. */
+function ExtractionFields({
+  fields,
+  onChange,
+  disabled,
+}: {
+  fields: Extraction["fields"];
+  onChange(fields: Extraction["fields"]): void;
+  disabled: boolean;
+}) {
+  const { t } = useI18n();
+  function replace(index: number, next: Extraction["fields"][number]) {
+    onChange(
+      fields.map((entry, at) => {
+        if (at === index) return next;
+        return entry;
+      }),
+    );
+  }
+  return (
+    <>
+      <div className="extraction-fields">
+        <div className="extraction-head">
+          <span>{t("flowFieldName")}</span>
+          <span>{t("flowFieldSelector")}</span>
+          <span>{t("flowAttribute")}</span>
+          <span>{t("flowRequired")}</span>
+        </div>
+        {fields.map((field, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: Controlled fields have editable names and no stable identity in the executable schema.
+          <div className="extraction-row" key={`field-${index}`}>
+            <input
+              aria-label={t("flowFieldName")}
+              value={field.name}
+              disabled={disabled}
+              onChange={(event) => replace(index, { ...field, name: event.target.value })}
+            />
+            <input
+              aria-label={t("flowFieldSelector")}
+              value={field.selector}
+              placeholder={t("flowFieldExample")}
+              disabled={disabled}
+              onChange={(event) => replace(index, { ...field, selector: event.target.value })}
+            />
+            <select
+              aria-label={t("flowAttribute")}
+              value={field.attribute}
+              disabled={disabled}
+              onChange={(event) =>
+                replace(index, {
+                  ...field,
+                  attribute: event.target.value as typeof field.attribute,
+                })
+              }
+            >
+              {(["text", "href", "src", "value"] as const).map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+            <input
+              type="checkbox"
+              aria-label={t("flowRequired")}
+              checked={field.required}
+              disabled={disabled}
+              onChange={(event) => replace(index, { ...field, required: event.target.checked })}
+            />
+            <Button
+              tone="ghost"
+              aria-label={t("flowRemove")}
+              disabled={disabled || fields.length <= 1}
+              onClick={() => onChange(fields.filter((_entry, at) => at !== index))}
+            >
+              <Trash2 size={14} />
+            </Button>
+          </div>
+        ))}
+      </div>
+      <Button
+        disabled={disabled || fields.length >= 20}
+        onClick={() =>
+          onChange([
+            ...fields,
+            {
+              name: `field${fields.length + 1}`,
+              selector: "",
+              attribute: "text",
+              required: false,
+            },
+          ])
+        }
+      >
+        <Plus size={13} />
+        {t("flowAddField")}
+      </Button>
+    </>
   );
 }

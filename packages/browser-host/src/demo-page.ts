@@ -1,4 +1,56 @@
 /** Deliberately static third-party-like fixture. Website content is not application UI copy. */
+/** Shared chrome for the nested list → detail fixture. Static website content, not UI copy. */
+function fixture(title: string, body: string): string {
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title}</title><style>
+*{box-sizing:border-box}body{margin:0;background:#f7f7f4;color:#2b3a33;font-family:system-ui,sans-serif;padding:30px 32px}
+nav{display:flex;justify-content:space-between;font-size:11px;color:#7c8981;border-bottom:1px solid #e5e6de;padding-bottom:16px}
+nav strong{color:#364c3f;letter-spacing:2px;font-size:12px}
+h1{font-family:Georgia,serif;font-size:26px;font-weight:400;margin:26px 0 18px}
+.row{display:flex;justify-content:space-between;align-items:baseline;gap:16px;background:#fff;border:1px solid #e6e9e1;border-radius:8px;padding:14px 16px;margin-bottom:10px}
+.row h2{font-size:14px;font-weight:500;margin:0}
+.row a{font-size:11px;color:#6f8a7c}
+main{max-width:560px}p{font-size:13px;color:#5d6a62;line-height:1.7}
+.price{display:inline-block;font-size:12px;color:#a37b48;letter-spacing:1px}
+</style></head><body>${body}</body></html>`;
+}
+
+/** List page for the nested traversal regression; each row links to its own detail page. */
+export const detailListPage = fixture(
+  "Clawler Detail Demo",
+  `<nav><strong>FIELDNOTES</strong><span>NESTED TRAVERSAL</span></nav>
+<h1>Field notes index</h1>
+<article class="row"><h2 class="name">Cedar</h2><a class="detail-link" href="/detail/1/">Open note</a></article>
+<article class="row"><h2 class="name">Birch</h2><a class="detail-link" href="/detail/2/">Open note</a></article>
+<article class="row"><h2 class="name">Alder</h2><a class="detail-link" href="/detail/3/">Open note</a></article>`,
+);
+
+/** Detail pages keyed by pathname, including an explicit back control as a history fallback. */
+export const detailPages: Record<string, string> = {
+  "/detail/1/": fixture(
+    "Cedar",
+    `<nav><strong>FIELDNOTES</strong><span>NOTE 01</span></nav><main><h1 class="title">Cedar</h1>
+<p class="summary">A slow-growing evergreen used for the first field experiment.</p>
+<span class="price">18.00</span></main>
+<p><a class="back" href="/detail/">Back to index</a></p>`,
+  ),
+  "/detail/2/": fixture(
+    "Birch",
+    `<nav><strong>FIELDNOTES</strong><span>NOTE 02</span></nav><main><h1 class="title">Birch</h1>
+<p class="summary">A fast pioneer species recorded during the second pass.</p>
+<span class="price">12.50</span></main>
+<p><a class="back" href="/detail/">Back to index</a></p>`,
+  ),
+  "/detail/3/": fixture(
+    "Alder",
+    `<nav><strong>FIELDNOTES</strong><span>NOTE 03</span></nav><main><h1 class="title">Alder</h1>
+<p class="summary">A riparian tree that closes the index of this fixture.</p>
+<span class="price">9.75</span></main>
+<p><a class="back" href="/detail/">Back to index</a></p>`,
+  ),
+};
+
 export const demoPage = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Clawler Playground</title><style>

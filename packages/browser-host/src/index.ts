@@ -2,6 +2,7 @@ import {
   AppError,
   type BrowserBounds,
   DEMO_URL,
+  DETAIL_DEMO_URL,
   documentSchema,
   type Profile,
   validateNavigationUrl,
@@ -10,7 +11,7 @@ import {
 import type { BrowserPort } from "@clawler/script-sdk";
 import { type BrowserWindow, session, WebContentsView } from "electron";
 import { BrowserAutomation } from "./automation";
-import { demoPage } from "./demo-page";
+import { demoPage, detailListPage, detailPages } from "./demo-page";
 import { BrowserRecorder } from "./recorder";
 
 const inspectionExpression = `(() => ({
@@ -24,6 +25,13 @@ const hiddenScrollbarCss = `
   *::-webkit-scrollbar { width: 0 !important; height: 0 !important; display: none !important; }
 `;
 const configuredProfiles = new Set<string>();
+
+/** Every page the local demo protocol serves; anything else is a hard 404. */
+const demoPages = new Map<string, string>([
+  [new URL(DEMO_URL).pathname, demoPage],
+  [new URL(DETAIL_DEMO_URL).pathname, detailListPage],
+  ...Object.entries(detailPages),
+]);
 
 /** Privileged adapter; the renderer only receives validated, narrow browser operations. */
 export class BrowserHost implements BrowserPort {
@@ -48,8 +56,9 @@ export class BrowserHost implements BrowserPort {
       profileSession.setPermissionCheckHandler(() => false);
       if (!configuredProfiles.has(profile.id))
         profileSession.protocol.handle("clawler-demo", (request) => {
-          if (request.url !== DEMO_URL) return new Response(null, { status: 404 });
-          return new Response(demoPage, {
+          const page = demoPages.get(new URL(request.url).pathname);
+          if (!page) return new Response(null, { status: 404 });
+          return new Response(page, {
             headers: {
               "Content-Type": "text/html; charset=utf-8",
               "Content-Security-Policy":
@@ -131,6 +140,30 @@ export class BrowserHost implements BrowserPort {
     } finally {
       signal.removeEventListener("abort", onAbort);
     }
+  }
+
+  async goBack(signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    const contents = this.getContents();
+    if (!contents.navigationHistory.canGoBack()) throw new AppError("INVALID_INPUT");
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = () => {
+        contents.off("did-stop-loading", done);
+        signal.removeEventListener("abort", abort);
+      };
+      const done = () => {
+        cleanup();
+        resolve();
+      };
+      const abort = () => {
+        cleanup();
+        reject(signal.reason);
+      };
+      contents.on("did-stop-loading", done);
+      signal.addEventListener("abort", abort, { once: true });
+      contents.navigationHistory.goBack();
+    });
+    signal.throwIfAborted();
   }
 
   async inspect(signal: AbortSignal) {

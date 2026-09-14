@@ -12,12 +12,23 @@ export interface BrowserAutomationPort {
   extract(input: Extraction, signal: AbortSignal): Promise<Array<Record<string, string>>>;
   /** Presence check used both for pagination and for `when.exists` conditions. */
   exists(selector: string, signal: AbortSignal): Promise<boolean>;
+  /** Records the current list items so `actOnItem` can address one of them by index. Returns the count. */
+  snapshotItems(itemsSelector: string, signal: AbortSignal): Promise<number>;
+  /** Acts on a previously snapshotted list item, resolving `action.selector` within that item. */
+  actOnItem(
+    index: number,
+    action: WorkflowAction,
+    timeoutMs: number,
+    signal: AbortSignal,
+  ): Promise<void>;
 }
 
 /** All browser capabilities are mediated by the host; scripts never receive WebContents. */
 export interface BrowserPort {
   readonly automation?: BrowserAutomationPort;
   navigate(url: string, signal: AbortSignal): Promise<void>;
+  /** Returns to the previous page when the host supports browser history. */
+  goBack?(signal: AbortSignal): Promise<void>;
   inspect(signal: AbortSignal): Promise<DocumentSnapshot>;
 }
 

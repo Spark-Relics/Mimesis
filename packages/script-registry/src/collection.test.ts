@@ -33,6 +33,8 @@ function fixture(
       if (action.selector === ".next") index++;
     }),
     extract: vi.fn(async () => pages[index] ?? []),
+    snapshotItems: vi.fn(async () => 0),
+    actOnItem: vi.fn(async () => undefined),
     exists: vi.fn(async (selector: string) => {
       if (present) return present.includes(selector);
       return index < pages.length - 1;
