@@ -17,6 +17,8 @@ export const errorCodeSchema = z.enum([
   "STORAGE_PATH_INVALID",
   "STORAGE_TARGET_OCCUPIED",
   "STORAGE_SPACE_LOW",
+  "NO_PUBLISHED_VERSION",
+  "VERSION_CONFLICT",
 ]);
 export type ErrorCode = z.infer<typeof errorCodeSchema>;
 
@@ -124,8 +126,22 @@ export const automationInstanceSchema = z.object({
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   workflow: collectionWorkflowSchema.optional(),
+  publishedVersionId: z.string().uuid().nullable().default(null),
 });
 export type AutomationInstance = z.infer<typeof automationInstanceSchema>;
+
+/** Immutable published snapshot. Never edited in place; execution binds to it by id and digest. */
+export const workflowVersionSchema = z.object({
+  id: z.string().uuid(),
+  instanceId: z.string().uuid(),
+  version: z.number().int().min(1).max(1_000_000),
+  digest: z.string().regex(/^[0-9a-f]{64}$/u),
+  targetUrl: z.string().min(1).max(4096),
+  workflow: collectionWorkflowSchema,
+  note: z.string().trim().max(200),
+  publishedAt: z.string().datetime(),
+});
+export type WorkflowVersion = z.infer<typeof workflowVersionSchema>;
 
 export const instanceUpdateSchema = automationInstanceSchema.pick({
   name: true,
@@ -133,6 +149,7 @@ export const instanceUpdateSchema = automationInstanceSchema.pick({
   targetUrl: true,
   enabled: true,
 });
+
 export type InstanceUpdate = z.infer<typeof instanceUpdateSchema>;
 
 export const documentSchema = z.object({
@@ -195,12 +212,21 @@ export const gatewaySubmitSchema = z.strictObject({
     .default({ trim: true, deduplicate: true }),
 });
 export type GatewaySubmission = z.infer<typeof gatewaySubmitSchema>;
+/** Resolved immutable snapshot a job executes against. Absent only for jobs persisted before version binding existed. */
+export const versionBindingSchema = z.object({
+  versionId: z.string().uuid(),
+  version: z.number().int().min(1),
+  digest: z.string().regex(/^[0-9a-f]{64}$/u),
+  targetUrl: z.string().min(1).max(4096),
+  workflow: collectionWorkflowSchema,
+});
+export type VersionBinding = z.infer<typeof versionBindingSchema>;
 export const gatewayExecutionSchema = z.object({
   instance: automationInstanceSchema,
   scriptVersion: z.string().min(1),
   parameters: workflowParametersSchema.optional(),
+  binding: versionBindingSchema.nullable().default(null),
 });
-export type GatewayExecution = z.infer<typeof gatewayExecutionSchema>;
 export const gatewayJobSchema = z.object({
   id: z.string().uuid(),
   idempotencyKey: z.string().min(1).max(128).nullable(),
@@ -247,6 +273,7 @@ export const workspaceSchema = z.object({
   profiles: z.array(profileSchema).min(1),
   selectedProfileId: z.string().uuid(),
   runs: z.array(runSchema),
+  versions: z.array(workflowVersionSchema),
   scripts: z.array(scriptManifestSchema),
 });
 export type WorkspaceSnapshot = z.infer<typeof workspaceSchema>;
@@ -298,6 +325,17 @@ export const requestSchema = z.discriminatedUnion("method", [
     id: z.string().uuid(),
     input: instanceUpdateSchema,
   }),
+  z.object({
+    method: z.literal("versions.publish"),
+    instanceId: z.string().uuid(),
+    note: z.string().trim().max(200).optional(),
+  }),
+  z.object({
+    method: z.literal("versions.rollback"),
+    instanceId: z.string().uuid(),
+    versionId: z.string().uuid(),
+  }),
+
   z.object({ method: z.literal("browser.bounds"), bounds: boundsSchema }),
   z.object({ method: z.literal("browser.navigate"), url: z.string().min(1).max(4096) }),
   z.object({ method: z.literal("recording.start") }),
@@ -331,6 +369,9 @@ export interface DesktopBridge {
     workflow: CollectionWorkflow,
     input?: InstanceUpdate,
   ): Promise<AutomationInstance>;
+  publishWorkflow(instanceId: string, note?: string): Promise<WorkflowVersion>;
+  rollbackWorkflow(instanceId: string, versionId: string): Promise<AutomationInstance>;
+
   setBrowserBounds(bounds: BrowserBounds): Promise<void>;
   navigate(url: string): Promise<void>;
   startRecording(): Promise<void>;

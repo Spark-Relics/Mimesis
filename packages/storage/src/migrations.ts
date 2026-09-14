@@ -16,10 +16,31 @@ const legacySchema = z.object({
   runs: z.array(z.unknown()).max(50),
 });
 
-/** Historical formats are confined here; current services only see version 3. */
+const versionThreeSchema = z.object({
+  schemaVersion: z.literal(3),
+  profiles: z.array(profileSchema).min(1),
+  selectedProfileId: z.string().uuid(),
+  instances: z.array(automationInstanceSchema),
+  runs: z.array(runSchema).max(50),
+});
+
+/**
+ * Historical formats are confined here; current services only see version 4.
+ * Version 4 adds immutable published workflow versions, so every older workspace
+ * starts with an empty version set and an unbound (never published) instance.
+ */
 export function decodeState(input: unknown): StoredState {
   const version = z.object({ schemaVersion: z.number().int() }).parse(input).schemaVersion;
-  if (version === 3) return stateSchema.parse(input);
+  if (version === 4) return stateSchema.parse(input);
+  if (version === 3) {
+    const { instances, ...rest } = versionThreeSchema.parse(input);
+    return stateSchema.parse({
+      ...rest,
+      schemaVersion: 4,
+      instances: instances.map((instance) => ({ ...instance, publishedVersionId: null })),
+      versions: [],
+    });
+  }
   const legacy = legacySchema.parse(input);
   let instances = legacy.instances;
   if (version === 1) {
@@ -49,5 +70,12 @@ export function decodeState(input: unknown): StoredState {
     if (matching.length !== 1) throw new AppError("STORAGE_FAILED");
     return runSchema.parse({ ...run, instanceId: matching[0]?.id });
   });
-  return stateSchema.parse({ ...legacy, schemaVersion: 3, instances, runs });
+  return stateSchema.parse({
+    profiles: legacy.profiles,
+    selectedProfileId: legacy.selectedProfileId,
+    schemaVersion: 4,
+    instances: instances.map((instance) => ({ ...instance, publishedVersionId: null })),
+    runs,
+    versions: [],
+  });
 }

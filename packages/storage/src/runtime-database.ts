@@ -10,25 +10,23 @@ import { type Artifact, type RuntimeCommand, runtimeCommandSchema } from "./runt
 import { type StoredState, stateSchema } from "./state";
 
 const applicationId = 0x4d494d45;
+/** Current on-disk schema. Bumped only together with an entry in versionUpgrades. */
+const schemaVersion = 2;
+const versionsTable = `CREATE TABLE workflow_versions (id TEXT PRIMARY KEY, instanceId TEXT NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
+  version INTEGER NOT NULL CHECK(version>=1), digest TEXT NOT NULL, targetUrl TEXT NOT NULL, workflow TEXT NOT NULL,
+  note TEXT NOT NULL, publishedAt TEXT NOT NULL, position INTEGER NOT NULL, UNIQUE(instanceId,version)) STRICT;
+CREATE INDEX workflow_versions_instance ON workflow_versions(instanceId,version);`;
+/** Index i upgrades user_version i+1 to i+2, so stored data from any older build stays readable. */
+const versionUpgrades = [
+  `ALTER TABLE instances ADD COLUMN publishedVersionId TEXT;\n${versionsTable}`,
+];
 const schema = `
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
 CREATE TABLE profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, createdAt TEXT NOT NULL, position INTEGER NOT NULL) STRICT;
 CREATE TABLE instances (id TEXT PRIMARY KEY, name TEXT NOT NULL, scriptId TEXT NOT NULL, profileId TEXT NOT NULL REFERENCES profiles(id),
   targetUrl TEXT NOT NULL, enabled INTEGER NOT NULL CHECK(enabled IN (0,1)), createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL,
-  workflow TEXT, position INTEGER NOT NULL) STRICT;
-CREATE TABLE runs (id TEXT PRIMARY KEY, instanceId TEXT NOT NULL, scriptId TEXT NOT NULL, version TEXT NOT NULL, profileId TEXT NOT NULL,
-  status TEXT NOT NULL CHECK(status IN ('running','succeeded','failed','cancelled')), startedAt TEXT NOT NULL, finishedAt TEXT, result TEXT, errorCode TEXT) STRICT;
-CREATE INDEX runs_instance_time ON runs(instanceId,startedAt);
-CREATE TABLE steps (id TEXT NOT NULL, runId TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE, position INTEGER NOT NULL,
-  kind TEXT NOT NULL, status TEXT NOT NULL, startedAt TEXT NOT NULL, finishedAt TEXT, PRIMARY KEY(runId,id), UNIQUE(runId,position)) STRICT;
-CREATE TABLE workspace_runs (runId TEXT PRIMARY KEY REFERENCES runs(id), position INTEGER NOT NULL UNIQUE) STRICT;
-CREATE TABLE gateway_jobs (id TEXT PRIMARY KEY, idempotencyKey TEXT UNIQUE, submission TEXT NOT NULL, execution TEXT NOT NULL,
-  status TEXT NOT NULL CHECK(status IN ('queued','running','succeeded','failed','cancelled')), createdAt TEXT NOT NULL, startedAt TEXT,
-  finishedAt TEXT, errorCode TEXT, cancelRequested INTEGER NOT NULL CHECK(cancelRequested IN (0,1)), runId TEXT REFERENCES runs(id), position INTEGER NOT NULL UNIQUE) STRICT;
-CREATE INDEX gateway_status_order ON gateway_jobs(status,position);
-CREATE TABLE artifacts (path TEXT PRIMARY KEY, jobId TEXT NOT NULL REFERENCES gateway_jobs(id) ON DELETE CASCADE, bytes INTEGER NOT NULL CHECK(bytes>=0), sha256 TEXT NOT NULL) STRICT;
-CREATE INDEX artifacts_job ON artifacts(jobId);
-`;
+  workflow TEXT, publishedVersionId TEXT, position INTEGER NOT NULL) STRICT;
+${versionsTable}
 
 type Row = Record<string, SQLOutputValue>;
 function parseJson(value: SQLOutputValue | undefined): unknown {
@@ -49,7 +47,7 @@ export class RuntimeDatabase {
     try {
       const version = Number(this.db.prepare("PRAGMA user_version").get()?.user_version);
       const identity = Number(this.db.prepare("PRAGMA application_id").get()?.application_id);
-      if (version !== 0 && (version !== 1 || identity !== applicationId))
+      if (version !== 0 && (version > schemaVersion || identity !== applicationId))
         throw new AppError("STORAGE_FAILED");
       if (
         version === 0 &&
@@ -65,7 +63,14 @@ export class RuntimeDatabase {
       if (version === 0)
         this.transaction(() => {
           this.db.exec(schema);
-          this.db.exec(`PRAGMA application_id=${applicationId}; PRAGMA user_version=1;`);
+          this.db.exec(
+            `PRAGMA application_id=${applicationId}; PRAGMA user_version=${schemaVersion};`,
+          );
+        });
+      else if (version < schemaVersion)
+        this.transaction(() => {
+          this.db.exec(versionUpgrades.slice(version - 1).join("\n"));
+          this.db.exec(`PRAGMA user_version=${schemaVersion};`);
         });
       if (this.db.prepare("PRAGMA quick_check").get()?.quick_check !== "ok")
         throw new AppError("STORAGE_FAILED");
@@ -158,14 +163,22 @@ export class RuntimeDatabase {
         position,
       });
     });
+    state.versions.forEach((version, position) => {
+      const { workflow, ...rest } = version;
+      this.put("workflow_versions", {
+        ...rest,
+        workflow: json(workflow),
+        position,
+      });
+    });
+    const versionIds = new Set(state.versions.map((entry) => entry.id));
+    for (const row of this.db.prepare("SELECT id FROM workflow_versions").all())
+      if (!versionIds.has(String(row.id)))
+        this.db.prepare("DELETE FROM workflow_versions WHERE id=?").run(String(row.id));
     const instanceIds = new Set(state.instances.map((entry) => entry.id));
     for (const row of this.db.prepare("SELECT id FROM instances").all())
       if (!instanceIds.has(String(row.id)))
         this.db.prepare("DELETE FROM instances WHERE id=?").run(String(row.id));
-    const profileIds = new Set(state.profiles.map((entry) => entry.id));
-    for (const row of this.db.prepare("SELECT id FROM profiles").all())
-      if (!profileIds.has(String(row.id)))
-        this.db.prepare("DELETE FROM profiles WHERE id=?").run(String(row.id));
     this.db.exec("DELETE FROM workspace_runs");
     state.runs.forEach((run, position) => {
       this.saveRun(run);
@@ -193,11 +206,20 @@ export class RuntimeDatabase {
     const runs = (
       this.db.prepare("SELECT runId FROM workspace_runs ORDER BY position").all() as Row[]
     ).map((row) => this.loadRun(String(row.runId)));
+    const versions = (
+      this.db.prepare("SELECT * FROM workflow_versions ORDER BY position").all() as Row[]
+    ).map((row) => {
+      const value: Record<string, unknown> = { ...row };
+      delete value.position;
+      value.workflow = parseJson(row.workflow);
+      return value;
+    });
     return stateSchema.parse({
-      schemaVersion: 3,
+      schemaVersion: 4,
       profiles,
       instances,
       runs,
+      versions,
       selectedProfileId: this.setting("selectedProfileId"),
     });
   }

@@ -4,6 +4,16 @@ import { collectPages } from "./collection";
 import { inspectPage } from "./page-inspector";
 
 export { resolveWorkflow } from "./collection";
+export {
+  bindingOf,
+  buildVersion,
+  nextVersionNumber,
+  parameterNames,
+  validateForPublish,
+  verifyVersion,
+  workflowDigest,
+} from "./versions";
+
 
 export const collectionScript: ScriptDefinition = {
   manifest: {
