@@ -34,7 +34,7 @@ function fixture(
     }),
     extract: vi.fn(async () => pages[index] ?? []),
     snapshotItems: vi.fn(async () => 0),
-    actOnItem: vi.fn(async () => undefined),
+    actOnItem: vi.fn(async (_index: number) => undefined),
     exists: vi.fn(async (selector: string) => {
       if (present) return present.includes(selector);
       return index < pages.length - 1;
@@ -45,6 +45,7 @@ function fixture(
     browser: {
       automation,
       navigate: vi.fn(async () => undefined),
+      goBack: vi.fn(async () => undefined),
       inspect: vi.fn(async () => {
         let url = `https://example.com/${index}`;
         if (sameUrl) url = "https://example.com/";
@@ -259,8 +260,143 @@ describe("reusable collection interpreter", () => {
     const assertion = expect(pending).rejects.toThrow("CANCELLED");
     await vi.advanceTimersByTimeAsync(1);
     controller.abort(new AppError("CANCELLED"));
-    await assertion;
     await vi.runAllTimersAsync();
+    await assertion;
+    expect(automation.act).not.toHaveBeenCalled();
+  });
+
+  it("opens each list row's detail page, merges its fields and returns to the list", async () => {
+    vi.useFakeTimers();
+    const { ctx, automation } = fixture([
+      [{ name: "Cedar" }, { name: "Birch" }, { name: "Alder" }],
+    ]);
+    automation.snapshotItems.mockResolvedValue(3);
+    automation.extract
+      .mockResolvedValueOnce([{ name: "Cedar" }, { name: "Birch" }, { name: "Alder" }])
+      // Detail pages contribute one record each: price + summary for the opened page.
+      .mockResolvedValueOnce([{ price: "18.00", summary: "evergreen" }])
+      .mockResolvedValueOnce([{ price: "12.50", summary: "pioneer" }])
+      .mockResolvedValueOnce([{ price: "9.75", summary: "riparian" }])
+      // Back on the list page the row signature matches, so the duplicate wait resolves.
+      .mockResolvedValue([{ name: "Cedar" }, { name: "Birch" }, { name: "Alder" }]);
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [],
+      pagination: null,
+      detail: {
+        link: ".detail-link",
+        extract: {
+          items: "main",
+          fields: [
+            { name: "price", selector: ".price", attribute: "text", required: true },
+            { name: "summary", selector: ".summary", attribute: "text", required: false },
+          ],
+        },
+        maxItems: 10,
+      },
+    };
+    const pending = collectPages(ctx, { url: "https://example.com", workflow });
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    expect(result.records).toEqual([
+      { name: "Cedar", price: "18.00", summary: "evergreen" },
+      { name: "Birch", price: "12.50", summary: "pioneer" },
+      { name: "Alder", price: "9.75", summary: "riparian" },
+    ]);
+    expect(result.collection).toEqual({
+      pages: 1,
+      stopReason: "single-page",
+      truncated: false,
+    });
+    expect(automation.actOnItem).toHaveBeenCalledTimes(3);
+    expect(automation.actOnItem.mock.calls.map((call) => call[0])).toEqual([0, 1, 2]);
+    expect(ctx.browser.goBack).toHaveBeenCalledTimes(3);
+    expect(automation.act).not.toHaveBeenCalledWith(
+      expect.objectContaining({ selector: ".back" }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it("caps detail traversal at maxItems and marks the collection as truncated", async () => {
+    vi.useFakeTimers();
+    const { ctx, automation } = fixture([[{ name: "Cedar" }, { name: "Birch" }]]);
+    automation.snapshotItems.mockResolvedValue(5);
+    automation.extract
+      .mockResolvedValueOnce([{ name: "Cedar" }, { name: "Birch" }])
+      .mockResolvedValueOnce([{ price: "18.00" }])
+      .mockResolvedValueOnce([{ price: "12.50" }])
+      .mockResolvedValue([{ name: "Cedar" }, { name: "Birch" }]);
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [],
+      pagination: null,
+      detail: {
+        link: ".detail-link",
+        extract: {
+          items: "main",
+          fields: [{ name: "price", selector: ".price", attribute: "text", required: true }],
+        },
+        maxItems: 2,
+      },
+    };
+    const pending = collectPages(ctx, { url: "https://example.com", workflow });
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    expect(result.records).toEqual([
+      { name: "Cedar", price: "18.00" },
+      { name: "Birch", price: "12.50" },
+    ]);
+    expect(result.collection?.truncated).toBe(true);
+    expect(automation.actOnItem).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back to the configured back control when browser history is unavailable", async () => {
+    vi.useFakeTimers();
+    const { ctx, automation } = fixture([[{ name: "Cedar" }]]);
+    delete ctx.browser.goBack;
+    automation.snapshotItems.mockResolvedValue(1);
+    automation.extract
+      .mockResolvedValueOnce([{ name: "Cedar" }])
+      .mockResolvedValueOnce([{ price: "18.00" }])
+      .mockResolvedValue([{ name: "Cedar" }]);
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [],
+      pagination: null,
+      detail: {
+        link: ".detail-link",
+        back: ".back",
+        extract: {
+          items: "main",
+          fields: [{ name: "price", selector: ".price", attribute: "text", required: true }],
+        },
+        maxItems: 1,
+      },
+    };
+    const pending = collectPages(ctx, { url: "https://example.com", workflow });
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    expect(result.records).toEqual([{ name: "Cedar", price: "18.00" }]);
+    expect(automation.act).toHaveBeenCalledWith(
+      { kind: "click", selector: ".back" },
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it("aborts a page wait without subsequent actions or inspection", async () => {
+    vi.useFakeTimers();
+    const { ctx, controller, automation } = fixture([[]]);
+    const pending = collectPages(ctx, {
+      url: "https://example.com",
+      workflow: { ...recipe, before: [] },
+    });
+    const assertion = expect(pending).rejects.toThrow("CANCELLED");
+    await vi.advanceTimersByTimeAsync(1);
+    controller.abort(new AppError("CANCELLED"));
+    await vi.runAllTimersAsync();
+    await assertion;
     expect(automation.act).not.toHaveBeenCalled();
     expect(ctx.browser.inspect).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
