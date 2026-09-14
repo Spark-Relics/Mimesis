@@ -10,7 +10,7 @@
 4. 在 Quotes 实验中，只点击网页的 Next，然后点击“结束并整理步骤”。录制得到 `click: li.next > a`。
 5. 点击“将最后一次点击设为下一页循环”。它从初始化序列中移除，在每页提取完成后执行。录制开始时的 URL 是运行起点，不会从录制结束时的第二页开始采集。
 6. 实验模板已填写：列表项 `.quote`；字段 `quote → .text → text`、`author → .author → text`；最多 2 页。所有规则都可编辑。自己的网站需要配置相应选择器。
-7. “检查配置”只做 Schema 和参数检查；“保存并试跑”才真实导航、执行与验证页面。运行记录展示步骤、数据表、完整 JSON、页数及截断标记。
+7. “检查配置”只做 Schema 和参数检查；“发布并运行”先把当前流程冻结成发布版本，再真实导航、执行与验证页面；未发布的草稿不会被执行，运行记录会标注本次使用的版本。运行记录展示步骤、数据表、完整 JSON、页数及截断标记。
 
 2026-09-09 的外部网站验收已通过：HTTPS Quotes to Scrape，真实录制 Next，回到原始 URL 执行，得到 **2 页、20 条非空 quote / author 记录**，停止原因 `page-limit`，`truncated: true`。这是前两页的结果，不是全站完成。已保存[实际流程](design/workflow-v3/quotes-workflow.json)和[工作区截图](design/workflow-v3/implemented-workflow.png)。
 
@@ -40,7 +40,7 @@
 
 携带 Bearer Token 向 `POST http://127.0.0.1:17840/v1/jobs` 提交。轮询 `GET /v1/jobs/:id` 到终态，再取 `GET /v1/jobs/:id/result?format=csv`（也支持 json、ndjson）。Quotes 示例没有输入占位符，可以省略 parameters。
 
-提交时保存流程、Profile、起始 URL、参数和脚本版本快照。排队期间修改流程不会改写已接受任务。JSON 的 `records` 是字段数据，`collection` 是页数/停止原因/截断信息；CSV 按字段成列，NDJSON 每行一条记录。调用方应检查截断信息，不能仅凭 succeeded 判断全站采集完成。
+提交时保存已发布版本、Profile、起始 URL 和参数快照。任务绑定受理时的发布版本，排队期间修改草稿或回滚版本都不会改写已接受的任务。JSON 的 `records` 是字段数据，`collection` 是页数/停止原因/截断信息；CSV 按字段成列，NDJSON 每行一条记录。调用方应检查截断信息，不能仅凭 succeeded 判断全站采集完成。
 
 本地端到端测试还验证了：录制搜索和翻页、排除密码、将输入变为参数模板、桌面参数 beta 得到 4 条对应数据，再通过 API 参数 gamma 复用流程并导出三种格式。正常重启、Profile 隔离与网关恢复由独立 Electron 用例验证。
 

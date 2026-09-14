@@ -27,6 +27,7 @@ AI is an optional authoring and recovery layer. A published script should contin
 - Embedded Chromium content through `WebContentsView`
 - A bundled page-inspector script for navigation and structured DOM extraction
 - Run lifecycle events, cancellation, timeout handling, and the latest 50 run records
+- Immutable published workflow versions: publishing freezes the recipe and its target URL, identical content reuses its version, runs execute only the bound version, and rollback switches future runs without touching the draft
 - SQLite transactions in a dedicated worker, normalized runtime tables, and backed-up legacy JSON migration
 - Custom storage directory in Preferences, with verified copying on next launch and the original workspace retained
 - Offline workspace backup and restore with per-file SHA-256 receipts; restore lands in a fresh directory and never overwrites the current workspace
