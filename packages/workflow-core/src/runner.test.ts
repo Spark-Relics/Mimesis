@@ -152,4 +152,32 @@ describe("script-only task runtime", () => {
     expect(run.steps[0]?.errorCode).toBeNull();
     expect(run.steps[0]?.finishedAt).not.toBeNull();
   });
+
+  it("downgrades a recoverable best-effort failure to a skip and keeps the run going", async () => {
+    const bestEffort: ScriptDefinition = {
+      manifest: script.manifest,
+      async execute(ctx) {
+        await ctx.attempt(
+          "click",
+          async () => {
+            throw new AppError("TIMEOUT");
+          },
+          "click: #optional",
+        );
+        return ctx.step("inspect", () => ctx.browser.inspect(ctx.signal));
+      },
+    };
+    const runner = new TaskRunner({ navigate: async () => undefined, inspect: async () => result });
+    const finished = completion(runner);
+    runner.start(bestEffort, { url: DEMO_URL }, profileId, instanceId);
+    const run = await finished;
+    expect(run.status).toBe("succeeded");
+    expect(run.steps.map((step) => [step.kind, step.status])).toEqual([
+      ["click", "skipped"],
+      ["inspect", "succeeded"],
+    ]);
+    // The cause stays on the skipped step instead of being lost or failing the run.
+    expect(run.steps[0]?.detail).toBe("click: #optional (failed: TIMEOUT)");
+    expect(run.steps[0]?.finishedAt).not.toBeNull();
+  });
 });

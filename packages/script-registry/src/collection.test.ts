@@ -22,12 +22,14 @@ function fixture(
   pages: Array<Array<Record<string, string>>>,
   sameUrl = false,
   present?: readonly string[],
+  failOn?: string,
 ) {
   let index = 0;
   const controller = new AbortController();
   const steps: Array<{ kind: StepKind; detail: string | undefined; skipped: boolean }> = [];
   const automation = {
     act: vi.fn(async (action: { kind: string; selector: string }) => {
+      if (failOn && action.selector === failOn) throw new AppError("TIMEOUT");
       if (action.selector === ".next") index++;
     }),
     extract: vi.fn(async () => pages[index] ?? []),
@@ -50,6 +52,15 @@ function fixture(
     async step(kind, action, detail) {
       steps.push({ kind, detail, skipped: false });
       return action();
+    },
+    async attempt(kind, action, detail) {
+      try {
+        return await action();
+      } catch (error) {
+        if (controller.signal.aborted) throw error;
+        steps.push({ kind, detail, skipped: true });
+        return undefined;
+      }
     },
     skip(kind, detail) {
       steps.push({ kind, detail, skipped: true });
@@ -147,6 +158,31 @@ describe("reusable collection interpreter", () => {
     expect(steps[1]?.detail).toBe("click: #cookie (missing: #cookie-banner)");
   });
 
+  it("downgrades a failing best-effort action to a skip and still finishes the page", async () => {
+    const { ctx, steps } = fixture([[{ name: "A" }]], false, undefined, "#cookie");
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [
+        { kind: "click", selector: "#cookie", onError: "skip" },
+        { kind: "fill", selector: "#search", value: "{{query}}" },
+      ],
+      pagination: null,
+    };
+    const result = await collectPages(ctx, {
+      url: "https://example.com",
+      workflow,
+      parameters: { query: "hello" },
+    });
+    // The failing optional action is recorded as skipped, and the page is still collected.
+    expect(result.records).toEqual([{ name: "A" }]);
+    expect(steps.map(({ kind, skipped }) => ({ kind, skipped }))).toEqual([
+      { kind: "navigate", skipped: false },
+      { kind: "click", skipped: true },
+      { kind: "fill", skipped: false },
+      { kind: "extract", skipped: false },
+      { kind: "inspect", skipped: false },
+    ]);
+  });
   it("waits for asynchronously replaced rows instead of collecting stale content twice", async () => {
     vi.useFakeTimers();
     const { ctx, automation } = fixture([[{ name: "A" }], [{ name: "B" }]], true);

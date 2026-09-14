@@ -97,6 +97,20 @@ export function CollectionEditor({
                   action(index, { ...entry, when: { exists: condition } });
                 }}
               />
+              <label className="workflow-check action-error">
+                <input
+                  type="checkbox"
+                  aria-label={t("flowOnError")}
+                  checked={entry.onError === "skip"}
+                  disabled={disabled}
+                  onChange={(event) => {
+                    // Unchecking drops the branch so the default `fail` behaviour is stored.
+                    if (event.target.checked) action(index, { ...entry, onError: "skip" });
+                    else action(index, { ...entry, onError: undefined });
+                  }}
+                />
+                {t("flowOnError")}
+              </label>
               {entry.kind === "fill" && (
                 <input
                   aria-label={t("flowValue")}

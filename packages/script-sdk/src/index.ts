@@ -25,6 +25,11 @@ export interface ScriptContext {
   readonly signal: AbortSignal;
   readonly browser: BrowserPort;
   step<T>(kind: StepKind, action: () => Promise<T>, detail?: string): Promise<T>;
+  /**
+   * Best-effort step: a recoverable failure is recorded as skipped and the run continues.
+   * Cancellation still propagates, so aborting never reports an action as merely skipped.
+   */
+  attempt<T>(kind: StepKind, action: () => Promise<T>, detail?: string): Promise<T | undefined>;
   /** Records a step that was deliberately not executed, so evidence matches what happened. */
   skip(kind: StepKind, detail?: string): void;
 }

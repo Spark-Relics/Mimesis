@@ -131,6 +131,38 @@ export class TaskRunner {
         current.finishedAt = current.startedAt;
         this.emit(run);
       },
+      attempt: async <T>(
+        kind: StepKind,
+        action: () => Promise<T>,
+        detail?: string,
+      ): Promise<T | undefined> => {
+        signal.throwIfAborted();
+        const current = record(kind, detail);
+        this.emit(run);
+        try {
+          const value = await abortable(action(), signal);
+          signal.throwIfAborted();
+          current.status = "succeeded";
+          return value;
+        } catch (error) {
+          const code = toErrorCode(error);
+          // Cancellation and the run-level timeout must still stop the run; only a
+          // recoverable action failure is downgraded to a skip.
+          if (signal.aborted) {
+            current.status = "failed";
+            if (code === "CANCELLED") current.status = "cancelled";
+            current.errorCode = code;
+            throw error;
+          }
+          current.status = "skipped";
+          // The cause stays with the step so a skipped best-effort action is still diagnosable.
+          current.detail = `${detail ?? ""} (failed: ${code})`.slice(0, 300);
+          return undefined;
+        } finally {
+          current.finishedAt = new Date().toISOString();
+          this.emit(run);
+        }
+      },
       step: async <T>(kind: StepKind, action: () => Promise<T>, detail?: string): Promise<T> => {
         signal.throwIfAborted();
         const current = record(kind, detail);

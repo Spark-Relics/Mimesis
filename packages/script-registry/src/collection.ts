@@ -56,11 +56,10 @@ export async function collectPages(
       ctx.skip(action.kind, `${label} (missing: ${action.when.exists})`);
       continue;
     }
-    await ctx.step(
-      action.kind,
-      () => browser.act(action, workflow.waitTimeoutMs, ctx.signal),
-      label,
-    );
+    const act = () => browser.act(action, workflow.waitTimeoutMs, ctx.signal);
+    // A best-effort action records its own failure as a skip instead of aborting the page.
+    if (action.onError === "skip") await ctx.attempt(action.kind, act, label);
+    else await ctx.step(action.kind, act, label);
   }
   const records: Array<Record<string, string>> = [];
   const seen = new Set<string>();

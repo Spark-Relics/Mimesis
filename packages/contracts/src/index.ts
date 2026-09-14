@@ -62,22 +62,27 @@ export type Profile = z.infer<typeof profileSchema>;
 const selectorSchema = z.string().trim().min(1).max(2048);
 /** Bounded precondition: the action runs only when the selector is present on the page. */
 export const workflowConditionSchema = z.strictObject({ exists: selectorSchema });
+/** `skip` records a failed best-effort action without aborting the run; the default is `fail`. */
+export const actionErrorSchema = z.enum(["fail", "skip"]);
 export const workflowActionSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("fill"),
     selector: selectorSchema,
     value: z.string().max(8000),
     when: workflowConditionSchema.optional(),
+    onError: actionErrorSchema.optional(),
   }),
   z.strictObject({
     kind: z.literal("click"),
     selector: selectorSchema,
     when: workflowConditionSchema.optional(),
+    onError: actionErrorSchema.optional(),
   }),
   z.strictObject({
     kind: z.literal("wait"),
     selector: selectorSchema,
     when: workflowConditionSchema.optional(),
+    onError: actionErrorSchema.optional(),
   }),
 ]);
 export const extractionSchema = z
@@ -115,6 +120,7 @@ export const collectionWorkflowSchema = z.strictObject({
 export type CollectionWorkflow = z.infer<typeof collectionWorkflowSchema>;
 export type WorkflowAction = z.infer<typeof workflowActionSchema>;
 export type WorkflowCondition = z.infer<typeof workflowConditionSchema>;
+export type ActionError = z.infer<typeof actionErrorSchema>;
 export const recordingSchema = z.object({
   url: z.string(),
   actions: z.array(workflowActionSchema).max(20),
