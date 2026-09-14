@@ -81,4 +81,38 @@ describe("browser action mediation", () => {
     await assertion;
     expect(sendCommand).not.toHaveBeenCalled();
   });
+
+  it("snapshots list items and scopes item actions to the snapshotted element", async () => {
+    const { automation, sendCommand } = fixture();
+    const signal = new AbortController().signal;
+    // A snapshot returns absolute paths; actOnItem must resolve its selector inside that scope.
+    sendCommand.mockResolvedValueOnce({
+      result: { value: { paths: ["body>article:nth-of-type(1)", "body>article:nth-of-type(2)"] } },
+    });
+    expect(await automation.snapshotItems(".item", signal)).toBe(2);
+    await automation.actOnItem(1, { kind: "click", selector: ".detail-link" }, 500, signal);
+    const scoped = sendCommand.mock.calls
+      .filter(([method]) => method === "Runtime.evaluate")
+      .map(([, params]) => String(params?.expression ?? ""))[1];
+    expect(scoped).toContain('"body>article:nth-of-type(2)"');
+    expect(scoped).toContain('".detail-link"');
+  });
+
+  it("rejects item actions without a matching snapshot entry", async () => {
+    const { automation, sendCommand } = fixture();
+    sendCommand.mockResolvedValueOnce({ result: { value: { paths: ["body>article"] } } });
+    await automation.snapshotItems(".item", new AbortController().signal);
+    await expect(
+      automation.actOnItem(
+        3,
+        { kind: "click", selector: ".detail-link" },
+        500,
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow("NOT_FOUND");
+    // The out-of-range index must fail before any browser input is dispatched.
+    expect(sendCommand.mock.calls.filter(([method]) => method === "Runtime.evaluate")).toHaveLength(
+      1,
+    );
+  });
 });

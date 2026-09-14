@@ -104,23 +104,27 @@ function extractPage(input: Extraction) {
 }
 
 /** Absolute `:nth-child` path, unique within the document, used to re-address a list item later. */
-function itemPath(node: Element): string {
-  const segments: string[] = [];
-  let current: Element | null = node;
-  while (current) {
-    let index = 1;
-    let sibling = current.previousElementSibling;
-    while (sibling) {
-      index++;
-      sibling = sibling.previousElementSibling;
-    }
-    segments.unshift(`${current.tagName.toLowerCase()}:nth-child(${index})`);
-    current = current.parentElement;
-  }
-  return segments.join(">");
-}
-
+/**
+ * Serialized into the page context, so it must not reference module scope:
+ * `itemPath` is deliberately inlined. A free identifier would throw inside the
+ * page and surface as a generic INVALID_INPUT.
+ */
 function snapshotItemPaths(itemsSelector: string) {
+  const itemPath = (node: Element): string => {
+    const segments: string[] = [];
+    let current: Element | null = node;
+    while (current) {
+      let index = 1;
+      let sibling = current.previousElementSibling;
+      while (sibling) {
+        index++;
+        sibling = sibling.previousElementSibling;
+      }
+      segments.unshift(`${current.tagName.toLowerCase()}:nth-child(${index})`);
+      current = current.parentElement;
+    }
+    return segments.join(">");
+  };
   try {
     const items = Array.from(document.querySelectorAll(itemsSelector));
     if (items.length > 2000) return { error: "INVALID_INPUT" };
