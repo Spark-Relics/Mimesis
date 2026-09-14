@@ -156,6 +156,12 @@ export async function collectPages(
  * Opens each list row's detail page in order, merges the extracted fields into the matching
  * record, then returns to the list. Returns true when the configured item limit was reached.
  */
+function backStepDetail(back: string | undefined): string {
+  // Evidence names the explicit back control when configured, otherwise real history.
+  if (back) return `back: ${back}`;
+  return "history back";
+}
+
 async function traverseDetails(
   ctx: ScriptContext,
   browser: BrowserAutomationPort,
@@ -224,7 +230,7 @@ async function traverseDetails(
           );
         }
       },
-      detail.back ? `back: ${detail.back}` : "history back",
+      backStepDetail(detail.back),
     );
     await pause(ctx.signal);
   }

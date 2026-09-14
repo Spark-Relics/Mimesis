@@ -297,7 +297,7 @@ export function CollectionEditor({
             checked={Boolean(detail)}
             disabled={disabled}
             onChange={(event) => {
-              let next: CollectionWorkflow["detail"] = undefined;
+              let next: CollectionWorkflow["detail"];
               if (event.target.checked)
                 next = {
                   link: "",
@@ -354,7 +354,10 @@ export function CollectionEditor({
                 onChange={(event) =>
                   onChange({
                     ...workflow,
-                    detail: { ...detail, extract: { ...detail.extract, items: event.target.value } },
+                    detail: {
+                      ...detail,
+                      extract: { ...detail.extract, items: event.target.value },
+                    },
                   })
                 }
               />
@@ -420,7 +423,6 @@ export function CollectionEditor({
     </div>
   );
 }
-
 
 /** Shared field editor so list and detail extraction keep identical behaviour and markup. */
 function ExtractionFields({
