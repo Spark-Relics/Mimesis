@@ -21,7 +21,7 @@ const recipe: CollectionWorkflow = {
 function fixture(pages: Array<Array<Record<string, string>>>, sameUrl = false) {
   let index = 0;
   const controller = new AbortController();
-  const steps: StepKind[] = [];
+  const steps: Array<{ kind: StepKind; detail: string | undefined }> = [];
   const automation = {
     act: vi.fn(async (action: { kind: string; selector: string }) => {
       if (action.selector === ".next") index++;
@@ -40,8 +40,8 @@ function fixture(pages: Array<Array<Record<string, string>>>, sameUrl = false) {
         return { url, title: "Test", headings: [], links: [] };
       }),
     },
-    async step(kind, action) {
-      steps.push(kind);
+    async step(kind, action, detail) {
+      steps.push({ kind, detail });
       return action();
     },
   };
@@ -83,7 +83,25 @@ describe("reusable collection interpreter", () => {
       "#submit",
       ".next",
     ]);
-    expect(steps).toEqual(["navigate", "fill", "click", "extract", "click", "extract", "inspect"]);
+    expect(steps.map((entry) => entry.kind)).toEqual([
+      "navigate",
+      "fill",
+      "click",
+      "extract",
+      "click",
+      "extract",
+      "inspect",
+    ]);
+    // Evidence names the URL, selectors and item selector each step acted on.
+    expect(steps.map((entry) => entry.detail)).toEqual([
+      "https://example.com",
+      "fill: #search",
+      "click: #submit",
+      ".item",
+      "click: .next",
+      ".item",
+      undefined,
+    ]);
   });
 
   it("waits for asynchronously replaced rows instead of collecting stale content twice", async () => {

@@ -795,6 +795,7 @@ body {
 }
 .step {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 9px;
   margin-bottom: 14px;
@@ -822,6 +823,24 @@ body {
 .step--failed .step-dot {
   color: #b84a56;
   background: #ffeaed;
+}
+.step-detail {
+  max-width: 46%;
+  overflow: hidden;
+  padding: 1px 5px;
+  color: #6b7686;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: #eef1f5;
+  border-radius: 4px;
+}
+.step-error {
+  flex-basis: 100%;
+  margin-left: 26px;
+  color: #b84a56;
+  font-size: 9px;
 }
 .result-data {
   min-width: 0;

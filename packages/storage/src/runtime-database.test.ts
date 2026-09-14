@@ -107,6 +107,8 @@ it("upgrades a database written before version binding without losing runs", asy
   legacy.exec("DROP TABLE workflow_versions");
   legacy.exec("ALTER TABLE runs DROP COLUMN workflowVersionId");
   legacy.exec("ALTER TABLE instances DROP COLUMN publishedVersionId");
+  legacy.exec("ALTER TABLE steps DROP COLUMN detail");
+  legacy.exec("ALTER TABLE steps DROP COLUMN errorCode");
   legacy.exec("PRAGMA user_version=1");
   legacy.close();
   const upgraded = new RuntimeDatabase(file);
@@ -129,6 +131,8 @@ it("round trips normalized workspace, shared runs, step ordering and gateway ide
       status: "succeeded",
       startedAt: run.startedAt,
       finishedAt: run.finishedAt,
+      detail: "https://example.test/catalog",
+      errorCode: null,
     },
   ];
   state.runs = [run, { ...run, id: crypto.randomUUID() }];

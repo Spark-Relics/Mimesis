@@ -49,9 +49,13 @@ export async function collectPages(
   if (!input.workflow || !ctx.browser.automation) throw new AppError("INVALID_INPUT");
   const workflow = resolveWorkflow(input.workflow, input.parameters);
   const browser = ctx.browser.automation;
-  await ctx.step("navigate", () => ctx.browser.navigate(input.url, ctx.signal));
+  await ctx.step("navigate", () => ctx.browser.navigate(input.url, ctx.signal), input.url);
   for (const action of workflow.before)
-    await ctx.step(action.kind, () => browser.act(action, workflow.waitTimeoutMs, ctx.signal));
+    await ctx.step(
+      action.kind,
+      () => browser.act(action, workflow.waitTimeoutMs, ctx.signal),
+      `${action.kind}: ${action.selector}`,
+    );
   const records: Array<Record<string, string>> = [];
   const seen = new Set<string>();
   let signature: string | undefined;
@@ -61,27 +65,31 @@ export async function collectPages(
   let stopReason: NonNullable<DocumentSnapshot["collection"]>["stopReason"] = "single-page";
   while (true) {
     ctx.signal.throwIfAborted();
-    const rows = await ctx.step("extract", async () => {
-      const deadline = Date.now() + workflow.waitTimeoutMs;
-      while (true) {
-        const current = await browser.extract(workflow.extract, ctx.signal);
-        const nextSignature = JSON.stringify(current);
-        if (current.length && nextSignature !== signature) {
-          signature = nextSignature;
-          return current;
-        }
-        if (Date.now() >= deadline) {
-          // Let an unchanged response settle before identifying a duplicate page.
-          // A click that changes neither the URL nor the data remains a timeout.
-          if (current.length && previousUrl !== undefined) {
-            const document = await ctx.browser.inspect(ctx.signal);
-            if (document.url !== previousUrl) return current;
+    const rows = await ctx.step(
+      "extract",
+      async () => {
+        const deadline = Date.now() + workflow.waitTimeoutMs;
+        while (true) {
+          const current = await browser.extract(workflow.extract, ctx.signal);
+          const nextSignature = JSON.stringify(current);
+          if (current.length && nextSignature !== signature) {
+            signature = nextSignature;
+            return current;
           }
-          throw new AppError("TIMEOUT");
+          if (Date.now() >= deadline) {
+            // Let an unchanged response settle before identifying a duplicate page.
+            // A click that changes neither the URL nor the data remains a timeout.
+            if (current.length && previousUrl !== undefined) {
+              const document = await ctx.browser.inspect(ctx.signal);
+              if (document.url !== previousUrl) return current;
+            }
+            throw new AppError("TIMEOUT");
+          }
+          await pause(ctx.signal);
         }
-        await pause(ctx.signal);
-      }
-    });
+      },
+      workflow.extract.items,
+    );
     pages++;
     let added = 0;
     for (const row of rows) {
@@ -112,12 +120,15 @@ export async function collectPages(
       break;
     }
     previousUrl = (await ctx.browser.inspect(ctx.signal)).url;
-    await ctx.step("click", () =>
-      browser.act(
-        { kind: "click", selector: workflow.pagination?.next ?? "" },
-        workflow.waitTimeoutMs,
-        ctx.signal,
-      ),
+    await ctx.step(
+      "click",
+      () =>
+        browser.act(
+          { kind: "click", selector: workflow.pagination?.next ?? "" },
+          workflow.waitTimeoutMs,
+          ctx.signal,
+        ),
+      `click: ${workflow.pagination?.next ?? ""}`,
     );
     await pause(ctx.signal);
   }

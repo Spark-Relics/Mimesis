@@ -23,7 +23,7 @@ export interface BrowserPort {
 export interface ScriptContext {
   readonly signal: AbortSignal;
   readonly browser: BrowserPort;
-  step<T>(kind: StepKind, action: () => Promise<T>): Promise<T>;
+  step<T>(kind: StepKind, action: () => Promise<T>, detail?: string): Promise<T>;
 }
 
 export interface ScriptInput {

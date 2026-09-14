@@ -11,7 +11,7 @@ import { type StoredState, stateSchema } from "./state";
 
 const applicationId = 0x4d494d45;
 /** Current on-disk schema. Bumped only together with an entry in versionUpgrades. */
-const schemaVersion = 3;
+const schemaVersion = 4;
 const versionsTable = `CREATE TABLE workflow_versions (id TEXT PRIMARY KEY, instanceId TEXT NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
   version INTEGER NOT NULL CHECK(version>=1), digest TEXT NOT NULL, targetUrl TEXT NOT NULL, workflow TEXT NOT NULL,
   note TEXT NOT NULL, publishedAt TEXT NOT NULL, position INTEGER NOT NULL, UNIQUE(instanceId,version)) STRICT;
@@ -20,6 +20,7 @@ CREATE INDEX workflow_versions_instance ON workflow_versions(instanceId,version)
 const versionUpgrades = [
   `ALTER TABLE instances ADD COLUMN publishedVersionId TEXT;\n${versionsTable}`,
   `ALTER TABLE runs ADD COLUMN workflowVersionId TEXT;`,
+  `ALTER TABLE steps ADD COLUMN detail TEXT;\nALTER TABLE steps ADD COLUMN errorCode TEXT;`,
 ];
 const schema = `
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
@@ -32,7 +33,7 @@ CREATE TABLE runs (id TEXT PRIMARY KEY, instanceId TEXT NOT NULL, scriptId TEXT 
   status TEXT NOT NULL CHECK(status IN ('running','succeeded','failed','cancelled')), startedAt TEXT NOT NULL, finishedAt TEXT, result TEXT, errorCode TEXT, workflowVersionId TEXT) STRICT;
 CREATE INDEX runs_instance_time ON runs(instanceId,startedAt);
 CREATE TABLE steps (id TEXT NOT NULL, runId TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE, position INTEGER NOT NULL,
-  kind TEXT NOT NULL, status TEXT NOT NULL, startedAt TEXT NOT NULL, finishedAt TEXT, PRIMARY KEY(runId,id), UNIQUE(runId,position)) STRICT;
+  kind TEXT NOT NULL, status TEXT NOT NULL, startedAt TEXT NOT NULL, finishedAt TEXT, detail TEXT, errorCode TEXT, PRIMARY KEY(runId,id), UNIQUE(runId,position)) STRICT;
 CREATE TABLE workspace_runs (runId TEXT PRIMARY KEY REFERENCES runs(id), position INTEGER NOT NULL UNIQUE) STRICT;
 CREATE TABLE gateway_jobs (id TEXT PRIMARY KEY, idempotencyKey TEXT UNIQUE, submission TEXT NOT NULL, execution TEXT NOT NULL,
   status TEXT NOT NULL CHECK(status IN ('queued','running','succeeded','failed','cancelled')), createdAt TEXT NOT NULL, startedAt TEXT,
@@ -152,9 +153,19 @@ export class RuntimeDatabase {
     steps.forEach((step, position) => {
       this.db
         .prepare(
-          "INSERT INTO steps(id,runId,position,kind,status,startedAt,finishedAt) VALUES (?,?,?,?,?,?,?)",
+          "INSERT INTO steps(id,runId,position,kind,status,startedAt,finishedAt,detail,errorCode) VALUES (?,?,?,?,?,?,?,?,?)",
         )
-        .run(step.id, run.id, position, step.kind, step.status, step.startedAt, step.finishedAt);
+        .run(
+          step.id,
+          run.id,
+          position,
+          step.kind,
+          step.status,
+          step.startedAt,
+          step.finishedAt,
+          step.detail,
+          step.errorCode,
+        );
     });
   }
   private loadRun(id: string): Run {
@@ -162,7 +173,7 @@ export class RuntimeDatabase {
     if (!run) throw new AppError("STORAGE_FAILED");
     const steps = this.db
       .prepare(
-        "SELECT id,kind,status,startedAt,finishedAt FROM steps WHERE runId=? ORDER BY position",
+        "SELECT id,kind,status,startedAt,finishedAt,detail,errorCode FROM steps WHERE runId=? ORDER BY position",
       )
       .all(id);
     return runSchema.parse({ ...run, result: parseJson(run.result), steps });

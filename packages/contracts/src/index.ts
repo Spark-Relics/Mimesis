@@ -183,6 +183,10 @@ export const stepSchema = z.object({
   status: z.enum(["running", "succeeded", "failed", "cancelled"]),
   startedAt: z.string().datetime(),
   finishedAt: z.string().datetime().nullable(),
+  /** Bounded, non-secret context such as the URL or selector the step acted on. */
+  detail: z.string().max(300).default(""),
+  /** Set only on the failing step, so a run is diagnosable without a separate log stream. */
+  errorCode: errorCodeSchema.nullable().default(null),
 });
 export type StepKind = z.infer<typeof stepKindSchema>;
 export type StepRecord = z.infer<typeof stepSchema>;

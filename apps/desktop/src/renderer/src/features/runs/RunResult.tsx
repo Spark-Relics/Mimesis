@@ -81,7 +81,9 @@ export function RunResult({ run, onCopyError }: { run: Run | undefined; onCopyEr
                 <Check size={10} />
               </span>
               <span>{t(stepKeys[step.kind])}</span>
+              {step.detail && <code className="step-detail">{step.detail}</code>}
               <small>{t(statusKeys[step.status])}</small>
+              {step.errorCode && <span className="step-error">{t(errorKeys[step.errorCode])}</span>}
             </div>
           ))}
           {run.errorCode && (

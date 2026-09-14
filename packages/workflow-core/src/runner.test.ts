@@ -1,4 +1,4 @@
-import { DEMO_URL, type DocumentSnapshot, type Run } from "@clawler/contracts";
+import { AppError, DEMO_URL, type DocumentSnapshot, type Run } from "@clawler/contracts";
 import type { BrowserPort, ScriptDefinition } from "@clawler/script-sdk";
 import { describe, expect, it, vi } from "vitest";
 import { TaskRunner } from "./index";
@@ -99,5 +99,36 @@ describe("script-only task runtime", () => {
     const finished = completion(runner);
     runner.start(script, { url: DEMO_URL }, profileId, instanceId);
     expect((await finished).status).toBe("failed");
+  });
+
+  it("records per-step evidence: the acting selector, the bound, and the failing error code", async () => {
+    const evidence: ScriptDefinition = {
+      manifest: script.manifest,
+      async execute(ctx, input) {
+        await ctx.step(
+          "navigate",
+          () => ctx.browser.navigate(input.url, ctx.signal),
+          "x".repeat(400),
+        );
+        await ctx.step(
+          "click",
+          async () => {
+            throw new AppError("TIMEOUT");
+          },
+          "click: .next",
+        );
+        return ctx.step("inspect", () => ctx.browser.inspect(ctx.signal));
+      },
+    };
+    const runner = new TaskRunner({ navigate: async () => undefined, inspect: async () => result });
+    const finished = completion(runner);
+    runner.start(evidence, { url: DEMO_URL }, profileId, instanceId);
+    const run = await finished;
+    expect(run.status).toBe("failed");
+    expect(run.errorCode).toBe("TIMEOUT");
+    // Detail is bounded so long selectors cannot bloat persisted evidence.
+    expect(run.steps[0]?.detail).toHaveLength(300);
+    expect(run.steps[1]?.detail).toBe("click: .next");
+    expect(run.steps.map((step) => step.errorCode)).toEqual([null, "TIMEOUT"]);
   });
 });

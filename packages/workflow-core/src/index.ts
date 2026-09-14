@@ -103,7 +103,7 @@ export class TaskRunner {
     const context: ScriptContext = {
       signal,
       browser: this.browser,
-      step: async <T>(kind: StepKind, action: () => Promise<T>): Promise<T> => {
+      step: async <T>(kind: StepKind, action: () => Promise<T>, detail?: string): Promise<T> => {
         signal.throwIfAborted();
         const step = {
           id: crypto.randomUUID(),
@@ -111,6 +111,8 @@ export class TaskRunner {
           status: "running" as const,
           startedAt: new Date().toISOString(),
           finishedAt: null,
+          detail: (detail ?? "").slice(0, 300),
+          errorCode: null,
         };
         run.steps.push(step);
         const current = run.steps[run.steps.length - 1];
@@ -123,7 +125,9 @@ export class TaskRunner {
           return value;
         } catch (error) {
           current.status = "failed";
-          if (toErrorCode(error) === "CANCELLED") current.status = "cancelled";
+          // Evidence stays on the step that failed instead of only on the run.
+          current.errorCode = toErrorCode(error);
+          if (current.errorCode === "CANCELLED") current.status = "cancelled";
           throw error;
         } finally {
           current.finishedAt = new Date().toISOString();
