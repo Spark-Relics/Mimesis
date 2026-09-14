@@ -8,10 +8,19 @@ import {
   IPC,
   type Profile,
   type Run,
+  type VersionBinding,
   validateNavigationUrl,
+  type WorkflowVersion,
   type WorkspaceSnapshot,
 } from "@clawler/contracts";
-import { resolveWorkflow, ScriptRegistry } from "@clawler/script-registry";
+import {
+  bindingOf,
+  buildVersion,
+  resolveWorkflow,
+  ScriptRegistry,
+  verifyVersion,
+  workflowDigest,
+} from "@clawler/script-registry";
 import type { StoredState, WorkspaceRepository } from "@clawler/storage";
 import { TaskRunner } from "@clawler/workflow-core";
 import type { BrowserWindow } from "electron";
@@ -59,14 +68,15 @@ export class WorkspaceService {
         enabled: true,
         createdAt: now,
         updatedAt: now,
+        publishedVersionId: null,
       };
       state = {
-        schemaVersion: 3,
+        schemaVersion: 4,
         instances: [instance],
         profiles: [profile],
         selectedProfileId: profile.id,
-
         runs: [],
+        versions: [],
       };
     }
     for (const run of state.runs) {
@@ -105,19 +115,36 @@ export class WorkspaceService {
     return structuredClone(this.state.instances);
   }
 
+  /**
+   * Only published content may execute. The editable draft is never run directly, so content the
+   * user did not publish cannot produce run data. Script-only tasks carry no workflow content to
+   * freeze and stay bound to the bundled script version recorded on the run.
+   */
+  private bindingFor(instance: AutomationInstance): VersionBinding | null {
+    if (!instance.workflow) return null;
+    if (!instance.publishedVersionId) throw new AppError("NO_PUBLISHED_VERSION");
+    const version = this.state.versions.find((entry) => entry.id === instance.publishedVersionId);
+    if (!version || version.instanceId !== instance.id) throw new AppError("NOT_FOUND");
+    return bindingOf(version);
+  }
+
   resolve(submission: GatewaySubmission): GatewayExecution {
     if (this.storageFailed) throw new AppError("STORAGE_FAILED");
     const instance = this.state.instances.find((entry) => entry.id === submission.instanceId);
     if (!instance) throw new AppError("NOT_FOUND");
     if (!instance.enabled) throw new AppError("FORBIDDEN");
     const script = this.registry.get(instance.scriptId);
-    if (instance.workflow) resolveWorkflow(instance.workflow, submission.parameters);
+    const binding = this.bindingFor(instance);
+    if (binding) resolveWorkflow(binding.workflow, submission.parameters);
     return {
       instance: {
         ...instance,
-        targetUrl: validateNavigationUrl(submission.targetUrl ?? instance.targetUrl),
+        targetUrl: validateNavigationUrl(
+          submission.targetUrl ?? binding?.targetUrl ?? instance.targetUrl,
+        ),
       },
       scriptVersion: script.manifest.version,
+      binding,
       ...(submission.parameters && { parameters: submission.parameters }),
     };
   }
@@ -127,13 +154,24 @@ export class WorkspaceService {
     if (this.host.recorder.active) throw new AppError("BUSY");
     signal.throwIfAborted();
     const { instance } = execution;
+    const binding = execution.binding;
     const current = this.state.instances.find((entry) => entry.id === instance.id);
     if (!current) throw new AppError("NOT_FOUND");
     if (!current.enabled) throw new AppError("FORBIDDEN");
+    // Workflow content always executes a published snapshot, including jobs accepted before binding.
+    if (current.workflow && !binding) throw new AppError("NO_PUBLISHED_VERSION");
     const profile = this.state.profiles.find((entry) => entry.id === instance.profileId);
     if (!profile) throw new AppError("NOT_FOUND");
     const script = this.registry.get(instance.scriptId);
     if (script.manifest.version !== execution.scriptVersion) throw new AppError("INVALID_INPUT");
+    if (binding) {
+      // A queued job executes the snapshot it was accepted with, so a later rollback never reroutes
+      // it. Stored content that no longer matches its digest must fail instead of running silently.
+      const stored = this.state.versions.find((entry) => entry.id === binding.versionId);
+      if (!stored || stored.instanceId !== instance.id || stored.digest !== binding.digest)
+        throw new AppError("VERSION_CONFLICT");
+      if (!verifyVersion(stored)) throw new AppError("VERSION_CONFLICT");
+    }
     this.host.selectProfile(profile);
     let runId: string | undefined;
     let unsubscribe = () => {};
@@ -149,16 +187,28 @@ export class WorkspaceService {
           }
         });
       });
-      runId = this.runner.start(
-        script,
-        {
-          url: instance.targetUrl,
-          ...(instance.workflow && { workflow: instance.workflow }),
-          ...(execution.parameters && { parameters: execution.parameters }),
-        },
-        profile.id,
-        instance.id,
-      ).id;
+      if (binding)
+        runId = this.runner.start(
+          script,
+          {
+            url: instance.targetUrl,
+            workflow: binding.workflow,
+            ...(execution.parameters && { parameters: execution.parameters }),
+          },
+          profile.id,
+          instance.id,
+          binding.versionId,
+        ).id;
+      else
+        runId = this.runner.start(
+          script,
+          {
+            url: instance.targetUrl,
+            ...(execution.parameters && { parameters: execution.parameters }),
+          },
+          profile.id,
+          instance.id,
+        ).id;
       signal.addEventListener("abort", abort, { once: true });
       if (signal.aborted) abort();
       const run = await completed;
@@ -263,6 +313,7 @@ export class WorkspaceService {
           enabled: true,
           createdAt: now,
           updatedAt: now,
+          publishedVersionId: null,
         };
         await this.updateState({ ...this.state, instances: [...this.state.instances, instance] });
         return instance;
@@ -278,6 +329,72 @@ export class WorkspaceService {
           ...current,
           ...request.input,
           targetUrl,
+          updatedAt: new Date().toISOString(),
+        };
+        await this.updateState({
+          ...this.state,
+          instances: this.state.instances.map((entry) => {
+            if (entry.id === instance.id) return instance;
+            return entry;
+          }),
+        });
+        return instance;
+      }
+      case "versions.publish": {
+        this.assertIdle();
+        if (this.host.recorder.active) throw new AppError("BUSY");
+        const current = this.state.instances.find((entry) => entry.id === request.instanceId);
+        if (!current) throw new AppError("NOT_FOUND");
+        if (!current.workflow) throw new AppError("INVALID_INPUT");
+        const targetUrl = validateNavigationUrl(current.targetUrl);
+        const digest = workflowDigest(targetUrl, current.workflow);
+        // Identical content keeps its existing snapshot and version number instead of duplicating it.
+        const known = this.state.versions.find(
+          (entry) => entry.instanceId === current.id && entry.digest === digest,
+        );
+        if (!known && this.state.versions.filter((e) => e.instanceId === current.id).length >= 500)
+          throw new AppError("VERSION_LIMIT");
+        const version: WorkflowVersion =
+          known ??
+          buildVersion({
+            instanceId: current.id,
+            targetUrl,
+            workflow: current.workflow,
+            note: request.note ?? "",
+            publishedAt: new Date().toISOString(),
+            existing: this.state.versions.filter((entry) => entry.instanceId === current.id),
+          });
+        const instance: AutomationInstance = {
+          ...current,
+          publishedVersionId: version.id,
+          updatedAt: new Date().toISOString(),
+        };
+        let versions = this.state.versions;
+        if (!known) versions = [...this.state.versions, version];
+        await this.updateState({
+          ...this.state,
+          instances: this.state.instances.map((entry) => {
+            if (entry.id === instance.id) return instance;
+            return entry;
+          }),
+          versions,
+        });
+        return version;
+      }
+      case "versions.rollback": {
+        this.assertIdle();
+        if (this.host.recorder.active) throw new AppError("BUSY");
+        const current = this.state.instances.find((entry) => entry.id === request.instanceId);
+        if (!current) throw new AppError("NOT_FOUND");
+        const version = this.state.versions.find(
+          (entry) => entry.id === request.versionId && entry.instanceId === current.id,
+        );
+        if (!version) throw new AppError("NOT_FOUND");
+        if (!verifyVersion(version)) throw new AppError("VERSION_CONFLICT");
+        // The draft and its URL stay untouched: rollback changes what runs, never what is being edited.
+        const instance: AutomationInstance = {
+          ...current,
+          publishedVersionId: version.id,
           updatedAt: new Date().toISOString(),
         };
         await this.updateState({
@@ -323,14 +440,25 @@ export class WorkspaceService {
         if (!instance.enabled) throw new AppError("FORBIDDEN");
         const profile = this.state.profiles.find((entry) => entry.id === instance.profileId);
         if (!profile) throw new AppError("NOT_FOUND");
-        const url = validateNavigationUrl(instance.targetUrl);
-        if (instance.workflow) resolveWorkflow(instance.workflow, request.parameters);
+        const binding = this.bindingFor(instance);
+        if (binding && request.parameters) resolveWorkflow(binding.workflow, request.parameters);
         this.host.selectProfile(profile);
+        if (binding)
+          return this.runner.start(
+            this.registry.get(instance.scriptId),
+            {
+              url: binding.targetUrl,
+              workflow: binding.workflow,
+              ...(request.parameters && { parameters: request.parameters }),
+            },
+            instance.profileId,
+            instance.id,
+            binding.versionId,
+          );
         return this.runner.start(
           this.registry.get(instance.scriptId),
           {
-            url,
-            ...(instance.workflow && { workflow: instance.workflow }),
+            url: instance.targetUrl,
             ...(request.parameters && { parameters: request.parameters }),
           },
           instance.profileId,

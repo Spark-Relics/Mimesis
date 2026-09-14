@@ -14,6 +14,7 @@ const instance: AutomationInstance = {
   enabled: true,
   createdAt: "2026-09-09T00:00:00.000Z",
   updatedAt: "2026-09-09T00:00:00.000Z",
+  publishedVersionId: null,
 };
 function run(status: Run["status"], startedAt: string): Run {
   return {
@@ -28,6 +29,7 @@ function run(status: Run["status"], startedAt: string): Run {
     steps: [],
     result: null,
     errorCode: null,
+    workflowVersionId: null,
   };
 }
 

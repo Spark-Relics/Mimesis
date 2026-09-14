@@ -11,7 +11,7 @@ import { type StoredState, stateSchema } from "./state";
 
 const applicationId = 0x4d494d45;
 /** Current on-disk schema. Bumped only together with an entry in versionUpgrades. */
-const schemaVersion = 2;
+const schemaVersion = 3;
 const versionsTable = `CREATE TABLE workflow_versions (id TEXT PRIMARY KEY, instanceId TEXT NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
   version INTEGER NOT NULL CHECK(version>=1), digest TEXT NOT NULL, targetUrl TEXT NOT NULL, workflow TEXT NOT NULL,
   note TEXT NOT NULL, publishedAt TEXT NOT NULL, position INTEGER NOT NULL, UNIQUE(instanceId,version)) STRICT;
@@ -19,6 +19,7 @@ CREATE INDEX workflow_versions_instance ON workflow_versions(instanceId,version)
 /** Index i upgrades user_version i+1 to i+2, so stored data from any older build stays readable. */
 const versionUpgrades = [
   `ALTER TABLE instances ADD COLUMN publishedVersionId TEXT;\n${versionsTable}`,
+  `ALTER TABLE runs ADD COLUMN workflowVersionId TEXT;`,
 ];
 const schema = `
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
@@ -27,6 +28,19 @@ CREATE TABLE instances (id TEXT PRIMARY KEY, name TEXT NOT NULL, scriptId TEXT N
   targetUrl TEXT NOT NULL, enabled INTEGER NOT NULL CHECK(enabled IN (0,1)), createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL,
   workflow TEXT, publishedVersionId TEXT, position INTEGER NOT NULL) STRICT;
 ${versionsTable}
+CREATE TABLE runs (id TEXT PRIMARY KEY, instanceId TEXT NOT NULL, scriptId TEXT NOT NULL, version TEXT NOT NULL, profileId TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('running','succeeded','failed','cancelled')), startedAt TEXT NOT NULL, finishedAt TEXT, result TEXT, errorCode TEXT, workflowVersionId TEXT) STRICT;
+CREATE INDEX runs_instance_time ON runs(instanceId,startedAt);
+CREATE TABLE steps (id TEXT NOT NULL, runId TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE, position INTEGER NOT NULL,
+  kind TEXT NOT NULL, status TEXT NOT NULL, startedAt TEXT NOT NULL, finishedAt TEXT, PRIMARY KEY(runId,id), UNIQUE(runId,position)) STRICT;
+CREATE TABLE workspace_runs (runId TEXT PRIMARY KEY REFERENCES runs(id), position INTEGER NOT NULL UNIQUE) STRICT;
+CREATE TABLE gateway_jobs (id TEXT PRIMARY KEY, idempotencyKey TEXT UNIQUE, submission TEXT NOT NULL, execution TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('queued','running','succeeded','failed','cancelled')), createdAt TEXT NOT NULL, startedAt TEXT,
+  finishedAt TEXT, errorCode TEXT, cancelRequested INTEGER NOT NULL CHECK(cancelRequested IN (0,1)), runId TEXT REFERENCES runs(id), position INTEGER NOT NULL UNIQUE) STRICT;
+CREATE INDEX gateway_status_order ON gateway_jobs(status,position);
+CREATE TABLE artifacts (path TEXT PRIMARY KEY, jobId TEXT NOT NULL REFERENCES gateway_jobs(id) ON DELETE CASCADE, bytes INTEGER NOT NULL CHECK(bytes>=0), sha256 TEXT NOT NULL) STRICT;
+CREATE INDEX artifacts_job ON artifacts(jobId);
+`;
 
 type Row = Record<string, SQLOutputValue>;
 function parseJson(value: SQLOutputValue | undefined): unknown {
@@ -117,14 +131,17 @@ export class RuntimeDatabase {
     const { steps, result, ...run } = runSchema.parse(input);
     // Preserve a completed shared run when another snapshot still contains its running state.
     const previous = this.db
-      .prepare("SELECT status,instanceId,scriptId,version,profileId FROM runs WHERE id=?")
+      .prepare(
+        "SELECT status,instanceId,scriptId,version,profileId,workflowVersionId FROM runs WHERE id=?",
+      )
       .get(run.id);
     if (
       previous &&
       (previous.instanceId !== run.instanceId ||
         previous.scriptId !== run.scriptId ||
         previous.version !== run.version ||
-        previous.profileId !== run.profileId)
+        previous.profileId !== run.profileId ||
+        previous.workflowVersionId !== run.workflowVersionId)
     )
       throw new AppError("STORAGE_FAILED");
     if (previous && previous.status !== "running" && run.status === "running") return;
@@ -179,6 +196,10 @@ export class RuntimeDatabase {
     for (const row of this.db.prepare("SELECT id FROM instances").all())
       if (!instanceIds.has(String(row.id)))
         this.db.prepare("DELETE FROM instances WHERE id=?").run(String(row.id));
+    const profileIds = new Set(state.profiles.map((entry) => entry.id));
+    for (const row of this.db.prepare("SELECT id FROM profiles").all())
+      if (!profileIds.has(String(row.id)))
+        this.db.prepare("DELETE FROM profiles WHERE id=?").run(String(row.id));
     this.db.exec("DELETE FROM workspace_runs");
     state.runs.forEach((run, position) => {
       this.saveRun(run);

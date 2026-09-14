@@ -50,7 +50,7 @@ test("live Quotes site: record pagination, save recipe, collect two real pages",
     await ui.getByRole("button", { name: "结束并整理步骤" }).click();
     await expect(ui.locator(".recorded-actions li")).toHaveCount(1);
     await ui.getByRole("button", { name: "将最后一次点击设为下一页循环" }).click();
-    await ui.getByRole("button", { name: "保存并试跑", exact: true }).click();
+    await ui.getByRole("button", { name: "发布并运行", exact: true }).click();
     await expect
       .poll(
         async () => (await ui.evaluate(() => window.clawler?.getWorkspace()))?.runs[0]?.status,

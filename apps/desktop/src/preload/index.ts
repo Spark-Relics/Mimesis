@@ -10,6 +10,7 @@ import {
   recordingSchema,
   runSchema,
   storageLocationSchema,
+  workflowVersionSchema,
   workspaceSchema,
   z,
 } from "@clawler/contracts";
@@ -60,6 +61,12 @@ const bridge: DesktopBridge = {
   saveWorkflow: async (instanceId, workflow, input) =>
     automationInstanceSchema.parse(
       await request({ method: "workflow.save", instanceId, workflow, input }),
+    ),
+  publishWorkflow: async (instanceId, note) =>
+    workflowVersionSchema.parse(await request({ method: "versions.publish", instanceId, note })),
+  rollbackWorkflow: async (instanceId, versionId) =>
+    automationInstanceSchema.parse(
+      await request({ method: "versions.rollback", instanceId, versionId }),
     ),
   setBrowserBounds: async (bounds) => {
     await request({ method: "browser.bounds", bounds });

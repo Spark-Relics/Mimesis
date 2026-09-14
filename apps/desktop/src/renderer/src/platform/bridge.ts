@@ -18,11 +18,13 @@ function createPreviewBridge(): DesktopBridge {
         enabled: true,
         createdAt: profile.createdAt,
         updatedAt: profile.createdAt,
+        publishedVersionId: null,
       },
     ],
     profiles: [profile],
     selectedProfileId: profile.id,
     runs: [],
+    versions: [],
 
     scripts: [
       {
@@ -51,6 +53,8 @@ function createPreviewBridge(): DesktopBridge {
     createInstance: async () => desktopRequired(),
     updateInstance: async () => desktopRequired(),
     saveWorkflow: async () => desktopRequired(),
+    publishWorkflow: async () => desktopRequired(),
+    rollbackWorkflow: async () => desktopRequired(),
     navigate: async () => desktopRequired(),
     startRecording: async () => desktopRequired(),
     stopRecording: async () => desktopRequired(),

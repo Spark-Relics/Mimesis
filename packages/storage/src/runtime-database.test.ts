@@ -10,7 +10,7 @@ import { type StoredState, stateSchema } from "./state";
 
 function workspace(): StoredState {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     profiles: [
       {
         id: execution.instance.profileId,
@@ -21,6 +21,7 @@ function workspace(): StoredState {
     selectedProfileId: execution.instance.profileId,
     instances: [execution.instance],
     runs: [],
+    versions: [],
   };
 }
 function gateway(): GatewayState {
@@ -53,6 +54,67 @@ async function database(context: TestContext) {
   });
   return { db, inspection, file };
 }
+
+it("round trips immutable published versions and the version each run executed", async (context) => {
+  const { db } = await database(context);
+  const base = workspace();
+  const instance = base.instances[0];
+  if (!instance) throw new Error("Missing fixture");
+  const workflow = {
+    version: 1 as const,
+    before: [{ kind: "fill" as const, selector: "#search", value: "{{query}}" }],
+    extract: {
+      items: ".item",
+      fields: [{ name: "name", selector: ".name", attribute: "text" as const, required: true }],
+    },
+    pagination: null,
+    waitTimeoutMs: 300,
+    maxRecords: 10,
+  };
+  const version = {
+    id: crypto.randomUUID(),
+    instanceId: instance.id,
+    version: 1,
+    digest: "a".repeat(64),
+    targetUrl: instance.targetUrl,
+    workflow,
+    note: "first",
+    publishedAt: instance.createdAt,
+  };
+  const bound = { ...instance, workflow, publishedVersionId: version.id };
+  const run = { ...completedRun(), workflowVersionId: version.id };
+  db.dispatch({
+    method: "initialize",
+    workspace: { ...base, instances: [bound], versions: [version], runs: [run] },
+    gateway: null,
+  });
+  expect(db.dispatch({ method: "workspace.load" })).toEqual({
+    ...base,
+    instances: [bound],
+    versions: [version],
+    runs: [run],
+  });
+});
+
+it("upgrades a database written before version binding without losing runs", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mimesis-upgrade-"));
+  const file = join(root, "runtime.sqlite");
+  const initial = { workspace: workspace(), gateway: gateway() };
+  const seeded = new RuntimeDatabase(file);
+  seeded.dispatch({ method: "initialize", workspace: initial.workspace, gateway: initial.gateway });
+  seeded.dispatch({ method: "close" });
+  const legacy = new DatabaseSync(file);
+  legacy.exec("DROP TABLE workflow_versions");
+  legacy.exec("ALTER TABLE runs DROP COLUMN workflowVersionId");
+  legacy.exec("ALTER TABLE instances DROP COLUMN publishedVersionId");
+  legacy.exec("PRAGMA user_version=1");
+  legacy.close();
+  const upgraded = new RuntimeDatabase(file);
+  const loaded = upgraded.dispatch({ method: "workspace.load" });
+  expect(loaded).toEqual(initial.workspace);
+  expect(upgraded.dispatch({ method: "gateway.load" })).toEqual(initial.gateway);
+  upgraded.dispatch({ method: "close" });
+});
 
 it("round trips normalized workspace, shared runs, step ordering and gateway idempotency", async (context) => {
   const { db, inspection } = await database(context);

@@ -55,6 +55,7 @@ export function decodeState(input: unknown): StoredState {
         enabled: true,
         createdAt: now,
         updatedAt: now,
+        publishedVersionId: null,
       },
     ];
   }

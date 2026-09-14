@@ -12,7 +12,7 @@ const profile = {
   createdAt: "2026-09-06T00:00:00.000Z",
 };
 const initial: StoredState = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   instances: [
     {
       id: "00000000-0000-4000-8000-000000000002",
@@ -23,11 +23,13 @@ const initial: StoredState = {
       enabled: true,
       createdAt: profile.createdAt,
       updatedAt: profile.createdAt,
+      publishedVersionId: null,
     },
   ],
   profiles: [profile],
   selectedProfileId: profile.id,
   runs: [],
+  versions: [],
 };
 
 it("backs up legacy source and preserves workflows while removing the obsolete live draft", async () => {
@@ -69,7 +71,7 @@ it("backs up legacy source and preserves workflows while removing the obsolete l
 it("refuses unknown future formats and never overwrites a conflicting migration backup", async () => {
   const path = join(await mkdtemp(join(tmpdir(), "clawler-store-")), "workspace.json");
   const repository = { load: () => loadLegacy(path) };
-  await writeFile(path, JSON.stringify({ ...initial, schemaVersion: 4 }));
+  await writeFile(path, JSON.stringify({ ...initial, schemaVersion: 5 }));
   await expect(repository.load()).rejects.toThrow();
   const original = JSON.stringify({ ...initial, schemaVersion: 2 });
   await writeFile(path, original);
@@ -130,7 +132,8 @@ it("migrates a version 1 workspace into an instance-owned workspace", async () =
     "utf8",
   );
   const migrated = await loadLegacy(path);
-  expect(migrated?.schemaVersion).toBe(3);
+  expect(migrated?.schemaVersion).toBe(4);
+  expect(migrated?.versions).toEqual([]);
   expect(migrated?.instances).toHaveLength(1);
   expect(migrated?.instances[0]?.profileId).toBe(profile.id);
 });
@@ -179,6 +182,7 @@ it("preserves explicit run ownership when two instances share one script and pro
         steps: [],
         result: null,
         errorCode: null,
+        workflowVersionId: null,
       },
     ],
   };

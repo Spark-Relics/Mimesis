@@ -15,6 +15,7 @@ it("does not let a late start response overwrite a completed run event", () => {
     result: null,
     steps: [],
     errorCode: null,
+    workflowVersionId: null,
   };
   const incoming: Run = { ...completed, status: "running", finishedAt: null };
   expect(mergeRun([completed], incoming)[0]?.status).toBe("succeeded");

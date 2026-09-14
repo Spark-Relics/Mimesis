@@ -18,8 +18,10 @@ export const execution: GatewayExecution = {
     targetUrl: "https://example.com/",
     createdAt: "2026-09-09T00:00:00.000Z",
     updatedAt: "2026-09-09T00:00:00.000Z",
+    publishedVersionId: null,
   },
   scriptVersion: "1.0.0",
+  binding: null,
 };
 export const submission = { instanceId: execution.instance.id };
 export function completedRun(): Run {
@@ -34,6 +36,7 @@ export function completedRun(): Run {
     startedAt: new Date().toISOString(),
     finishedAt: new Date().toISOString(),
     errorCode: null,
+    workflowVersionId: null,
     result: {
       title: " Catalog ",
       url: execution.instance.targetUrl,

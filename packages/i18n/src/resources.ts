@@ -82,7 +82,7 @@ export const zhCN = {
   flowInvalidParams: "参数必须是 JSON 对象，值必须是字符串",
   flowMissingParams: "缺少参数：",
   flowValid: "配置检查通过。页面选择器与实际行为仍需试跑验证。",
-  flowSaved: "采集流程已保存，桌面与 API 将使用这份流程。",
+  flowSaved: "草稿已保存。发布版本后，桌面与 API 才会使用这份内容。",
   flowMovedToLoop: "已把最后一次点击移入翻页循环。每次运行都会从起始网址重新开始。",
   flowJourney: "打开网站 · 录制操作 · 配置循环 · 验证结果",
   flowRecordTitle: "在真实浏览器中操作",
@@ -101,8 +101,23 @@ export const zhCN = {
   flowParametersHint:
     '输入步骤可以用 {{keyword}} 占位，本次填入 {"keyword":"示例"}。API 可传入相同 parameters 对象；参数不会作为默认值保存。',
   flowCheck: "检查配置",
-  flowSave: "保存流程",
-  flowSaveRun: "保存并试跑",
+  flowSave: "保存草稿",
+  flowSaveRun: "发布并运行",
+  versionPublish: "发布版本",
+  versionTitle: "已发布版本",
+  versionHint:
+    "每次发布都会冻结流程与目标地址。已发布内容不会被修改；重复发布相同内容会复用原版本号。",
+  versionEmpty: "还没有发布版本。保存流程后点击“发布并运行”创建第一个版本。",
+  versionBindingTitle: "运行绑定",
+  versionBindingNone: "该任务尚未发布版本，运行前请先发布。",
+  versionBindingBound: "运行时使用已发布的 {{version}} 版本，编辑中的草稿不会被执行。",
+  versionPublished: "已发布 {{version}} 版本。",
+  versionInUse: "当前使用",
+  versionSwitch: "切换到 {{version}}",
+  versionSwitched: "后续运行已切换到 {{version}} 版。",
+  versionSwitchNote:
+    "切换版本只改变后续运行的执行版本，当前草稿与目标地址保持不变；已开始的任务继续使用受理时的版本。",
+  versionLimited: "版本数量已达上限 500，历史版本不会被自动清理。",
   flowApi: "从你的项目调用",
   flowApiHint:
     "启用本机网关后，携带 Bearer Token 向 POST /v1/jobs 提交以下 JSON，再轮询任务并下载结果。默认地址 http://127.0.0.1:17840。",
@@ -169,6 +184,7 @@ export const zhCN = {
   instanceTasks: "任务",
   instanceScriptTab: "脚本与浏览器",
   instanceConfig: "配置",
+  instanceVersions: "版本",
   instanceRuns: "运行记录",
   instanceSections: "实例功能",
   instanceDetailDescription: "使用 {{script}} 脚本执行的独立自动化实例",
@@ -288,6 +304,10 @@ export const zhCN = {
   errorTimeout: "操作超时，请重试。",
   errorCancelled: "任务已取消。",
   errorStorage: "本地数据保存或读取失败。",
+  errorNoPublishedVersion: "该任务还没有发布版本，无法执行。请先保存流程并发布。",
+  errorVersionConflict: "已发布版本与当前内容不一致，请重新发布后再执行。",
+  errorVersionLimit:
+    "该任务的版本数已达上限（500）。删除不再需要的任务后重新建立，历史版本不会被自动清理。",
   errorInternal: "操作失败，请查看运行日志。",
   loading: "正在加载工作空间…",
   retry: "重试",
@@ -390,7 +410,7 @@ export const enUS: Record<MessageKey, string> = {
   flowInvalidParams: "Parameters must be a JSON object with string values.",
   flowMissingParams: "Missing parameters:",
   flowValid: "Configuration validated. Test the workflow to verify selectors and behavior.",
-  flowSaved: "Workflow saved for desktop and API execution.",
+  flowSaved: "Draft saved. Desktop and API executions use it once you publish a version.",
   flowMovedToLoop: "Moved the last click into pagination. Each run starts from the original URL.",
   flowJourney: "Open website · Record actions · Configure loop · Verify results",
   flowRecordTitle: "Operate the real browser",
@@ -412,8 +432,25 @@ export const enUS: Record<MessageKey, string> = {
   flowParametersHint:
     'Use {{keyword}} in input actions and provide {"keyword":"example"} here. The API accepts the same parameters object. Values are not saved as defaults.',
   flowCheck: "Validate configuration",
-  flowSave: "Save workflow",
-  flowSaveRun: "Save & test",
+  flowSave: "Save draft",
+  flowSaveRun: "Publish & run",
+  versionPublish: "Publish version",
+  versionTitle: "Published versions",
+  versionHint:
+    "Each publish freezes the workflow and its target URL. Published content is never edited in place; publishing identical content reuses the existing version.",
+  versionEmpty: 'No published version yet. Save the workflow, then choose "Publish & run".',
+  versionBindingTitle: "Run binding",
+  versionBindingNone: "This task has no published version. Publish before running.",
+  versionBindingBound:
+    "Runs execute published version {{version}}. The editable draft is never executed.",
+  versionPublished: "Published {{version}}.",
+  versionInUse: "In use",
+  versionSwitch: "Switch to {{version}}",
+  versionSwitched: "New runs now execute {{version}}.",
+  versionSwitchNote:
+    "Switching changes what new runs execute. The draft and its target URL are kept as they are, and jobs already accepted keep their own version.",
+  versionLimited:
+    "The 500-version limit is reached. Published history is never pruned automatically.",
   flowApi: "Call from your project",
   flowApiHint:
     "Enable the local gateway, then POST this JSON to /v1/jobs with your Bearer token. Poll the job and download results. Default address: http://127.0.0.1:17840.",
@@ -485,6 +522,7 @@ export const enUS: Record<MessageKey, string> = {
   instanceTasks: "Tasks",
   instanceScriptTab: "Script & browser",
   instanceConfig: "Configuration",
+  instanceVersions: "Versions",
   instanceRuns: "Run history",
   instanceSections: "Instance sections",
   instanceDetailDescription: "Independent automation instance powered by {{script}}",
@@ -612,6 +650,12 @@ export const enUS: Record<MessageKey, string> = {
   errorTimeout: "The operation timed out. Please retry.",
   errorCancelled: "The task was cancelled.",
   errorStorage: "Local data could not be saved or loaded.",
+  errorNoPublishedVersion:
+    "This task has no published version to run. Save the workflow and publish first.",
+  errorVersionConflict:
+    "The published version no longer matches its content. Publish again before running.",
+  errorVersionLimit:
+    "This task reached the 500-version limit. Recreate the task instead; published history is never pruned automatically.",
   errorInternal: "The operation failed. Check the run log.",
   loading: "Loading workspace…",
   retry: "Retry",

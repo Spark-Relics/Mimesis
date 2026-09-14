@@ -28,30 +28,18 @@ export const stateSchema = z
       state.profiles.some((profile) => profile.id === instance.profileId),
     ),
   )
-  .refine(
-    (state) =>
   .refine((state) =>
     state.versions.every((version) =>
       state.instances.some((instance) => instance.id === version.instanceId),
     ),
   )
   .refine((state) =>
-    state.instances.every((instance) =>
-      instance.publishedVersionId === null
-        ? true
-        : state.versions.some(
-            (entry) => entry.id === instance.publishedVersionId && entry.instanceId === instance.id,
-          ),
-    ),
-  );
-  .refine((state) =>
-    state.instances.every((instance) =>
-      instance.publishedVersionId === null
-        ? true
-        : state.versions.some(
-            (entry) => entry.id === instance.publishedVersionId && entry.instanceId === instance.id,
-          ),
-    ),
+    state.instances.every((instance) => {
+      if (instance.publishedVersionId === null) return true;
+      return state.versions.some(
+        (entry) => entry.id === instance.publishedVersionId && entry.instanceId === instance.id,
+      );
+    }),
   );
 
 export type StoredState = z.infer<typeof stateSchema>;

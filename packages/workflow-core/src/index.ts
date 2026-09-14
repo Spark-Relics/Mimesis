@@ -30,7 +30,13 @@ export class TaskRunner {
     };
   }
 
-  start(script: ScriptDefinition, input: ScriptInput, profileId: string, instanceId: string): Run {
+  start(
+    script: ScriptDefinition,
+    input: ScriptInput,
+    profileId: string,
+    instanceId: string,
+    workflowVersionId: string | null = null,
+  ): Run {
     if (this.active) throw new AppError("BUSY");
     const run: Run = {
       id: crypto.randomUUID(),
@@ -44,6 +50,7 @@ export class TaskRunner {
       steps: [],
       result: null,
       errorCode: null,
+      workflowVersionId,
     };
     const controller = new AbortController();
     this.active = { run, controller };

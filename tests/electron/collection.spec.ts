@@ -110,7 +110,7 @@ test("record native actions, configure loop, execute with parameters and export 
     await source.fill(JSON.stringify(recorded, null, 2));
     await ui.getByRole("button", { name: "应用脚本", exact: true }).click();
     await ui.getByRole("textbox", { name: "本次运行参数（JSON）" }).fill('{"keyword":"beta"}');
-    await ui.getByRole("button", { name: "保存并试跑", exact: true }).click();
+    await ui.getByRole("button", { name: "发布并运行", exact: true }).click();
     await expect
       .poll(async () => (await ui.evaluate(() => window.clawler?.getWorkspace()))?.runs[0]?.status)
       .toBe("succeeded");

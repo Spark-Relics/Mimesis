@@ -14,6 +14,7 @@ import {
   Circle,
   FileClock,
   Globe2,
+  History,
   Play,
   Save,
   Settings2,
@@ -31,9 +32,14 @@ const detailTabs = [
   { id: "browser", key: "flowBrowse", icon: Globe2 },
   { id: "workflow", key: "flowConfigure", icon: Braces },
   { id: "config", key: "instanceConfig", icon: Settings2 },
+  { id: "versions", key: "instanceVersions", icon: History },
   { id: "runs", key: "instanceRuns", icon: FileClock },
 ] as const;
 type DetailTab = (typeof detailTabs)[number]["id"];
+
+function versionName(version: number): string {
+  return `v${version}`;
+}
 
 export function InstanceDetailPage({
   instance,
@@ -64,7 +70,7 @@ export function InstanceDetailPage({
   onSelectProfile(id: string): void;
   onCopyError(): void;
 }) {
-  const { t } = useI18n();
+  const { t, formatDate } = useI18n();
   const [tab, setTab] = useState<DetailTab>("browser");
   const [url, setUrl] = useState(instance.targetUrl);
   const [workflow, setWorkflow] = useState(instance.workflow ?? structuredClone(emptyWorkflow));
@@ -76,7 +82,16 @@ export function InstanceDetailPage({
   const recorderOwned = useRef(false);
   const instanceRuns = workspace.runs.filter((run) => run.instanceId === instance.id);
   const activeRun = instanceRuns.find((run) => run.status === "running");
+  const instanceVersions = workspace.versions
+    .filter((entry) => entry.instanceId === instance.id)
+    .slice()
+    .sort((left, right) => right.version - left.version);
+  const boundVersion = instanceVersions.find((entry) => entry.id === instance.publishedVersionId);
   const disabled = pending || busy || Boolean(activeRun) || !isDesktop;
+  let bindingMessage = t("versionBindingNone");
+  if (boundVersion) {
+    bindingMessage = t("versionBindingBound", { version: versionName(boundVersion.version) });
+  }
   useEffect(
     () => () => {
       if (recorderOwned.current) void bridge.stopRecording().catch(() => undefined);
@@ -128,7 +143,8 @@ export function InstanceDetailPage({
       setError(t("flowInvalidParams"));
     }
   }
-  async function save(run: boolean) {
+  /** Keeps the editable draft current without changing what execution uses. */
+  async function saveDraft() {
     const validated = validate();
     if (!validated) return;
     await perform(async () => {
@@ -139,10 +155,50 @@ export function InstanceDetailPage({
         enabled: instance.enabled,
       });
       await onRefresh();
+      setMessage(t("flowSaved"));
+    });
+  }
+  /** Draft edits only take effect once published; publishing identical content reuses its version. */
+  async function publish(run: boolean) {
+    const validated = validate();
+    if (!validated) return;
+    await perform(async () => {
+      await bridge.saveWorkflow(instance.id, validated.workflow, {
+        name: instance.name,
+        targetUrl: url,
+        profileId: workspace.selectedProfileId,
+        enabled: instance.enabled,
+      });
+      const version = await bridge.publishWorkflow(instance.id);
+      await onRefresh();
       if (run) {
         onAcceptRun(await bridge.startRun(instance.id, validated.parameters));
         setTab("runs");
-      } else setMessage(t("flowSaved"));
+        return;
+      }
+      setMessage(t("versionPublished", { version: versionName(version.version) }));
+      setTab("versions");
+    });
+  }
+  /** Runs whatever is currently published, so switching versions is never undone by running. */
+  async function runBound() {
+    let values: Record<string, string>;
+    try {
+      values = workflowParametersSchema.parse(JSON.parse(parameters || "{}"));
+    } catch {
+      setError(t("flowInvalidParams"));
+      return;
+    }
+    await perform(async () => {
+      onAcceptRun(await bridge.startRun(instance.id, values));
+      setTab("runs");
+    });
+  }
+  async function switchVersion(versionId: string, version: number) {
+    await perform(async () => {
+      await bridge.rollbackWorkflow(instance.id, versionId);
+      await onRefresh();
+      setMessage(t("versionSwitched", { version: versionName(version) }));
     });
   }
   function useLastClick() {
@@ -185,7 +241,7 @@ export function InstanceDetailPage({
               disabled={disabled || recording || !instance.enabled}
               onClick={() => {
                 if (instance.workflow || workflow.extract.items) {
-                  void save(true);
+                  void runBound();
                   return;
                 }
                 onRun();
@@ -348,14 +404,18 @@ export function InstanceDetailPage({
               <Button disabled={disabled} onClick={validate}>
                 {t("flowCheck")}
               </Button>
-              <Button disabled={disabled} onClick={() => void save(false)}>
+              <Button disabled={disabled} onClick={() => void saveDraft()}>
                 <Save size={13} />
                 {t("flowSave")}
+              </Button>
+              <Button disabled={disabled} onClick={() => void publish(false)}>
+                <History size={13} />
+                {t("versionPublish")}
               </Button>
               <Button
                 tone="primary"
                 disabled={disabled || !instance.enabled}
-                onClick={() => void save(true)}
+                onClick={() => void publish(true)}
               >
                 <Play size={13} />
                 {t("flowSaveRun")}
@@ -367,6 +427,51 @@ export function InstanceDetailPage({
               <pre>{JSON.stringify({ instanceId: instance.id, parameters: {} }, null, 2)}</pre>
               <code>{"/v1/jobs → /v1/jobs/:id → /v1/jobs/:id/result?format=csv"}</code>
             </details>
+          </div>
+        )}
+        {tab === "versions" && (
+          <div className="workflow-workspace">
+            <div className="workflow-intro">
+              <div>
+                <h2>{t("versionBindingTitle")}</h2>
+                <p>{bindingMessage}</p>
+              </div>
+              {boundVersion && <Badge>{versionName(boundVersion.version)}</Badge>}
+            </div>
+            <section className="workflow-section">
+              <h2>{t("versionTitle")}</h2>
+              <p className="workflow-muted">{t("versionHint")}</p>
+              {instanceVersions.length === 0 && (
+                <p className="workflow-muted">{t("versionEmpty")}</p>
+              )}
+              <ul className="version-list">
+                {instanceVersions.map((version) => (
+                  <li
+                    key={version.id}
+                    className={cn(
+                      "version-row",
+                      version.id === instance.publishedVersionId && "is-active",
+                    )}
+                  >
+                    <strong>{versionName(version.version)}</strong>
+                    <span className="workflow-muted">{formatDate(version.publishedAt)}</span>
+                    <span>{version.note}</span>
+                    {version.id === instance.publishedVersionId && (
+                      <Badge tone="success">{t("versionInUse")}</Badge>
+                    )}
+                    {version.id !== instance.publishedVersionId && (
+                      <Button
+                        disabled={disabled}
+                        onClick={() => void switchVersion(version.id, version.version)}
+                      >
+                        {t("versionSwitch", { version: versionName(version.version) })}
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <p className="workflow-muted">{t("versionSwitchNote")}</p>
+            </section>
           </div>
         )}
         {tab === "config" && (

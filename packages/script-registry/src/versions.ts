@@ -32,8 +32,7 @@ export function validateForPublish(input: unknown): CollectionWorkflow {
   for (const action of workflow.before) {
     if (action.kind !== "fill") continue;
     const stripped = action.value.replace(placeholder, "");
-    if (stripped.includes("{{") || stripped.includes("}}"))
-      throw new AppError("INVALID_INPUT");
+    if (stripped.includes("{{") || stripped.includes("}}")) throw new AppError("INVALID_INPUT");
   }
   if (workflow.pagination && workflow.pagination.maxPages < 2) throw new AppError("INVALID_INPUT");
   return workflow;
@@ -46,7 +45,11 @@ function canonical(value: unknown): string {
   if (value !== null && typeof value === "object") {
     const entries = Object.entries(value as Record<string, unknown>)
       .filter(([, entry]) => entry !== undefined)
-      .sort(([left], [right]) => (left < right ? -1 : 1));
+      .sort(([left], [right]) => {
+        if (left < right) return -1;
+        if (left > right) return 1;
+        return 0;
+      });
     return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonical(entry)}`).join(",")}}`;
   }
   return JSON.stringify(value);
@@ -94,8 +97,9 @@ export function buildVersion(input: {
   });
 }
 
+/** Snapshot an execution may bind to. Stored content that no longer matches its digest is refused. */
 export function bindingOf(version: WorkflowVersion): VersionBinding {
-  if (!verifyVersion(version)) throw new AppError("STORAGE_FAILED");
+  if (!verifyVersion(version)) throw new AppError("VERSION_CONFLICT");
   return {
     versionId: version.id,
     version: version.version,

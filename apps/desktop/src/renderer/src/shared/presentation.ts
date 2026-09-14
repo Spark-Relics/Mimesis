@@ -33,6 +33,9 @@ export const errorKeys: Record<ErrorCode, MessageKey> = {
   STORAGE_PATH_INVALID: "errorStoragePath",
   STORAGE_TARGET_OCCUPIED: "errorStorageOccupied",
   STORAGE_SPACE_LOW: "errorStorageSpace",
+  NO_PUBLISHED_VERSION: "errorNoPublishedVersion",
+  VERSION_CONFLICT: "errorVersionConflict",
+  VERSION_LIMIT: "errorVersionLimit",
   INTERNAL: "errorInternal",
   DESKTOP_REQUIRED: "desktopRequired",
 };

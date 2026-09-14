@@ -19,6 +19,7 @@ export const errorCodeSchema = z.enum([
   "STORAGE_SPACE_LOW",
   "NO_PUBLISHED_VERSION",
   "VERSION_CONFLICT",
+  "VERSION_LIMIT",
 ]);
 export type ErrorCode = z.infer<typeof errorCodeSchema>;
 
@@ -197,6 +198,8 @@ export const runSchema = z.object({
   steps: z.array(stepSchema),
   result: documentSchema.nullable(),
   errorCode: errorCodeSchema.nullable(),
+  /** Published workflow version this run executed. Null only for runs recorded before version binding. */
+  workflowVersionId: z.string().uuid().nullable().default(null),
 });
 export type Run = z.infer<typeof runSchema>;
 
@@ -227,6 +230,7 @@ export const gatewayExecutionSchema = z.object({
   parameters: workflowParametersSchema.optional(),
   binding: versionBindingSchema.nullable().default(null),
 });
+export type GatewayExecution = z.infer<typeof gatewayExecutionSchema>;
 export const gatewayJobSchema = z.object({
   id: z.string().uuid(),
   idempotencyKey: z.string().min(1).max(128).nullable(),

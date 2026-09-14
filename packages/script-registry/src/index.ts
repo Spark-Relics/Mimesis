@@ -14,7 +14,6 @@ export {
   workflowDigest,
 } from "./versions";
 
-
 export const collectionScript: ScriptDefinition = {
   manifest: {
     id: "collection-workflow",
