@@ -72,6 +72,9 @@ export const zhCN = {
   flowExpression: "计算表达式（可选）",
   flowExpressionHint:
     "使用 {字段名}、白名单函数（upper/lower/trim/length/replace/substring/concat/number/round）与算术/比较/逻辑运算符；求值失败记为步骤失败。",
+  flowNormalize: "标准化",
+  flowNormalizeHint:
+    "提取后、表达式计算前处理字段值：trim 去首尾空白，collapse 去首尾并把连续空白折叠为单个空格，upper/lower 转大小写。",
   flowAddField: "添加字段",
   flowLoop: "循环与停止条件",
   flowLoopHint:
@@ -443,6 +446,9 @@ export const enUS: Record<MessageKey, string> = {
   flowExpression: "Computed expression (optional)",
   flowExpressionHint:
     "Use {field}, whitelisted functions (upper/lower/trim/length/replace/substring/concat/number/round) and arithmetic/comparison/logic operators. A failed evaluation fails the step.",
+  flowNormalize: "Normalize",
+  flowNormalizeHint:
+    "Applied after extraction, before expressions: trim removes outer whitespace, collapse also squashes inner whitespace runs to single spaces, upper/lower change case.",
   flowAddField: "Add field",
   flowLoop: "Loop & stopping conditions",
   flowLoopHint:

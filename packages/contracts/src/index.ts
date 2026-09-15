@@ -126,6 +126,8 @@ export const extractionSchema = z
           selector: z.string().trim().max(2048),
           attribute: z.enum(["text", "href", "src", "value"]),
           required: z.boolean(),
+          /** Value normalization applied after extraction, before any expression. Absent means none. */
+          normalize: z.enum(["none", "trim", "collapse", "upper", "lower"]).optional(),
           /** Restricted expression evaluated after extraction; overrides the selector value. */
           expression: z.string().max(1000).optional(),
         }),

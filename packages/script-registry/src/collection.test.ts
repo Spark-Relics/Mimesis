@@ -789,6 +789,49 @@ describe("reusable collection interpreter", () => {
     await expect(rejection).resolves.toBeInstanceOf(AppError);
   });
 
+  it("normalizes field values before expressions and stays absent-friendly for old content", async () => {
+    vi.useFakeTimers();
+    const { ctx } = fixture([[{ name: "  Cedar \n  Oaks  ", code: " ab-12 " }]]);
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [],
+      pagination: null,
+      extract: {
+        items: ".item",
+        fields: [
+          {
+            name: "name",
+            selector: ".name",
+            attribute: "text",
+            required: true,
+            normalize: "collapse",
+          },
+          {
+            name: "code",
+            selector: ".code",
+            attribute: "text",
+            required: true,
+            normalize: "upper",
+          },
+          {
+            name: "label",
+            selector: ".name",
+            attribute: "text",
+            required: false,
+            expression: "concat({name}, '/', {code})",
+          },
+        ],
+      },
+    };
+    const pending = collectPages(ctx, { url: "https://example.com", workflow });
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    // Normalization runs before expressions, so concat sees the cleaned inputs.
+    expect(result.records).toEqual([
+      { name: "Cedar Oaks", code: " AB-12 ", label: "Cedar Oaks/ AB-12 " },
+    ]);
+  });
+
   it("falls back to the configured back control when browser history is unavailable", async () => {
     vi.useFakeTimers();
     const { ctx, automation } = fixture([[{ name: "Cedar" }]]);

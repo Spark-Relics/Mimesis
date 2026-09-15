@@ -311,7 +311,7 @@
 .extraction-head,
 .extraction-row {
   display: grid;
-  grid-template-columns: 1fr 2fr 110px 50px 1.4fr 38px;
+  grid-template-columns: 1fr 2fr 110px 50px 1.4fr 90px 38px;
   align-items: center;
   gap: 12px;
   margin-bottom: 9px;

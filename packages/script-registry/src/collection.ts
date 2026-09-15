@@ -13,12 +13,26 @@ import { evaluateExpression, evaluateFilter } from "./expression.js";
 import { dedupeKey, fieldNames, traversalNames } from "./fields.js";
 import { parameterNames, validateForPublish } from "./versions.js";
 
-/** Computes expression-backed fields in place after selector extraction. */
+/** Normalizes one field value; `collapse` also squashes inner whitespace runs. */
+function normalizeValue(value: string, mode: "trim" | "collapse" | "upper" | "lower"): string {
+  if (mode === "upper") return value.toUpperCase();
+  if (mode === "lower") return value.toLowerCase();
+  if (mode === "collapse") return value.trim().replace(/\s+/gu, " ");
+  return value.trim();
+}
+
+/** Applies per-field normalization (first) then expression fields (second) in place. */
 function applyExpressions(
   extraction: Extraction,
   rows: Array<Record<string, string>>,
 ): Array<Record<string, string>> {
   for (const field of extraction.fields) {
+    if (field.normalize && field.normalize !== "none") {
+      for (const row of rows) {
+        const value = row[field.name];
+        if (value !== undefined) row[field.name] = normalizeValue(value, field.normalize);
+      }
+    }
     if (!field.expression) continue;
     for (const row of rows) row[field.name] = evaluateExpression(field.expression, row);
   }

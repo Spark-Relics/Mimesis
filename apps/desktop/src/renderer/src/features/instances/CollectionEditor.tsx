@@ -672,6 +672,7 @@ function ExtractionFields({
           <span>{t("flowAttribute")}</span>
           <span>{t("flowRequired")}</span>
           <span>{t("flowExpression")}</span>
+          <span>{t("flowNormalize")}</span>
         </div>
         {fields.map((field, index) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: Controlled fields have editable names and no stable identity in the executable schema.
@@ -729,6 +730,29 @@ function ExtractionFields({
                 replace(index, { ...field, expression: event.target.value });
               }}
             />
+            <select
+              aria-label={t("flowNormalize")}
+              title={t("flowNormalizeHint")}
+              value={field.normalize ?? "none"}
+              disabled={disabled}
+              onChange={(event) => {
+                const mode = event.target.value as NonNullable<
+                  Extraction["fields"][number]["normalize"]
+                >;
+                if (mode === "none") {
+                  const { normalize: _removed, ...rest } = field;
+                  replace(index, rest);
+                  return;
+                }
+                replace(index, { ...field, normalize: mode });
+              }}
+            >
+              {(["none", "trim", "collapse", "upper", "lower"] as const).map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
             <Button
               tone="ghost"
               aria-label={t("flowRemove")}
