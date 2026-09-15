@@ -259,9 +259,25 @@
 }
 .recorded-actions li {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   padding: 10px 0;
+}
+/* HTTP request actions carry URL, headers and body, so the fields take their own line. */
+.request-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  flex: 1 1 100%;
+}
+.request-fields > textarea {
+  grid-column: 1 / -1;
+  min-height: 56px;
+  font:
+    12px / 1.6 Consolas,
+    monospace;
+  resize: vertical;
 }
 .recorded-actions li > strong {
   min-width: 80px;

@@ -36,6 +36,26 @@ export const quotesWorkflow: CollectionWorkflow = {
   pagination: { next: ".next a", maxPages: 2 },
 };
 
+/** Serializes request headers to one `Name: value` line each for the editor textarea. */
+function headerLines(headers: HttpRequestSpec["headers"]): string {
+  return Object.entries(headers)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("\n");
+}
+
+/** Parses `Name: value` lines back into the header record; malformed lines are ignored. */
+function parseHeaders(text: string): HttpRequestSpec["headers"] {
+  const headers: HttpRequestSpec["headers"] = {};
+  for (const line of text.split("\n")) {
+    const at = line.indexOf(":");
+    if (at <= 0) continue;
+    const key = line.slice(0, at).trim();
+    if (!key) continue;
+    headers[key] = line.slice(at + 1).trimStart();
+  }
+  return headers;
+}
+
 export function CollectionEditor({
   workflow,
   onChange,
@@ -193,6 +213,34 @@ export function CollectionEditor({
                       // The default backoff is omitted from the workflow to keep digests stable.
                       if (value === 500) delete request.retryDelayMs;
                       else request.retryDelayMs = value;
+                      action(index, { ...entry, request });
+                    }}
+                  />
+                  <textarea
+                    aria-label={t("flowRequestHeaders")}
+                    placeholder={t("flowRequestHeadersPlaceholder")}
+                    spellCheck={false}
+                    value={headerLines(entry.request.headers)}
+                    disabled={disabled}
+                    onChange={(event) =>
+                      action(index, {
+                        ...entry,
+                        request: { ...entry.request, headers: parseHeaders(event.target.value) },
+                      })
+                    }
+                  />
+                  <textarea
+                    aria-label={t("flowRequestBody")}
+                    placeholder={t("flowRequestBodyPlaceholder")}
+                    spellCheck={false}
+                    value={entry.request.body ?? ""}
+                    disabled={disabled}
+                    onChange={(event) => {
+                      const body = event.target.value;
+                      const request = { ...entry.request };
+                      // An empty body means "no body"; the key is dropped to keep the digest unchanged.
+                      if (body === "") delete request.body;
+                      else request.body = body;
                       action(index, { ...entry, request });
                     }}
                   />
