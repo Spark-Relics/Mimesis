@@ -2,7 +2,6 @@ import {
   AppError,
   type CollectionWorkflow,
   collectionWorkflowSchema,
-  type DetailTraversal,
   type DocumentSnapshot,
   type Extraction,
   type WorkflowPlan,
@@ -11,6 +10,7 @@ import {
 } from "@clawler/contracts";
 import type { BrowserAutomationPort, ScriptContext, ScriptInput } from "@clawler/script-sdk";
 import { evaluateExpression } from "./expression.js";
+import { dedupeKey, fieldNames, traversalNames } from "./fields.js";
 import { parameterNames, validateForPublish } from "./versions.js";
 
 /** Computes expression-backed fields in place after selector extraction. */
@@ -73,18 +73,6 @@ export function dryRunWorkflow(input: CollectionWorkflow): CollectionWorkflow {
       maxItems: Math.min(workflow.detail.maxItems, 3),
     },
   });
-}
-
-function fieldNames(extract: Extraction): string[] {
-  return extract.fields.map((field) => field.name);
-}
-
-function traversalNames(node: DetailTraversal): string[] {
-  let nested: string[] = [];
-  if (node.children) nested = traversalNames(node.children);
-  let rows: string[] = [];
-  if (node.rows) rows = fieldNames(node.rows);
-  return [...fieldNames(node.extract), ...rows, ...nested];
 }
 
 /** Fixed input/output contract derived from the immutable workflow content. */
@@ -225,9 +213,9 @@ export async function collectPages(
     pages++;
     let added = 0;
     for (const row of rows) {
-      const key = JSON.stringify(row);
+      const key = dedupeKey(row, workflow.dedupe);
       if (seen.has(key)) continue;
-      const size = new TextEncoder().encode(key).byteLength;
+      const size = new TextEncoder().encode(JSON.stringify(row)).byteLength;
       if (records.length >= workflow.maxRecords || bytes + size > 2_000_000) {
         stopReason = "record-limit";
         break;
@@ -352,9 +340,9 @@ async function traverseDetails(
         if (child) {
           // Nested rows must land in the dataset first so child merges have targets.
           for (const row of nested) {
-            const rowKey = JSON.stringify(row);
+            const rowKey = dedupeKey(row, workflow.dedupe);
             if (budget.seen.has(rowKey)) continue;
-            const size = new TextEncoder().encode(rowKey).byteLength;
+            const size = new TextEncoder().encode(JSON.stringify(row)).byteLength;
             if (records.length >= workflow.maxRecords || budget.bytes + size > 2_000_000) {
               budget.stopReason = "record-limit";
               break;
@@ -375,8 +363,8 @@ async function traverseDetails(
           }
         } else {
           for (const row of nested) {
-            const rowKey = JSON.stringify(row);
-            const size = new TextEncoder().encode(rowKey).byteLength;
+            const rowKey = dedupeKey(row, workflow.dedupe);
+            const size = new TextEncoder().encode(JSON.stringify(row)).byteLength;
             if (records.length >= workflow.maxRecords || budget.bytes + size > 2_000_000) {
               budget.stopReason = "record-limit";
               break;

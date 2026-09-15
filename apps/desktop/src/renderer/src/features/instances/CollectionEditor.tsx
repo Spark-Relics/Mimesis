@@ -22,6 +22,7 @@ export const emptyWorkflow: CollectionWorkflow = {
   pagination: null,
   waitTimeoutMs: 8000,
   maxRecords: 1000,
+  dedupe: [],
 };
 export const quotesWorkflow: CollectionWorkflow = {
   ...emptyWorkflow,
@@ -350,6 +351,26 @@ export function CollectionEditor({
               disabled={disabled}
               onChange={(event) =>
                 onChange({ ...workflow, maxRecords: Number(event.target.value) })
+              }
+            />
+          </label>
+        </div>
+        <div className="workflow-form-row">
+          <label className="workflow-field">
+            {t("flowDedupe")}
+            <input
+              value={(workflow.dedupe ?? []).join(",")}
+              disabled={disabled}
+              placeholder={t("flowDedupe")}
+              onChange={(event) =>
+                onChange({
+                  ...workflow,
+                  dedupe: event.target.value
+                    .split(",")
+                    .map((name) => name.trim())
+                    .filter(Boolean)
+                    .slice(0, 8),
+                })
               }
             />
           </label>

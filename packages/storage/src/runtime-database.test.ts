@@ -70,6 +70,7 @@ it("round trips immutable published versions and the version each run executed",
     pagination: null,
     waitTimeoutMs: 300,
     maxRecords: 10,
+    dedupe: [],
   };
   const version = {
     id: crypto.randomUUID(),

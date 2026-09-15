@@ -49,6 +49,7 @@ it("backs up legacy source and preserves workflows while removing the obsolete l
         pagination: { next: ".next", maxPages: 3 },
         waitTimeoutMs: 5000,
         maxRecords: 200,
+        dedupe: [],
       },
     })),
   };

@@ -9,6 +9,7 @@ import {
   workflowVersionExportSchema,
   workflowVersionSchema,
 } from "@clawler/contracts";
+import { outputFieldNames } from "./fields.js";
 
 const placeholder = /\{\{([^{}]*)\}\}/gu;
 /** Captured response bodies are referenced as `{{response:name}}`, never as run parameters. */
@@ -58,6 +59,13 @@ export function validateForPublish(input: unknown): CollectionWorkflow {
     if (stripped.includes("{{") || stripped.includes("}}")) throw new AppError("INVALID_INPUT");
   }
   if (workflow.pagination && workflow.pagination.maxPages < 2) throw new AppError("INVALID_INPUT");
+  const dedupe = workflow.dedupe;
+  if (dedupe.length) {
+    // Dedupe names must address real output fields; unknown names would silently no-op.
+    const names = outputFieldNames(workflow);
+    if (new Set(dedupe).size !== dedupe.length) throw new AppError("INVALID_INPUT");
+    for (const name of dedupe) if (!names.has(name)) throw new AppError("INVALID_INPUT");
+  }
   for (const action of workflow.before) {
     if (action.kind !== "request") continue;
     // Duplicate capture names would silently overwrite earlier responses.

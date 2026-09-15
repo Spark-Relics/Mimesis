@@ -65,6 +65,7 @@ test("publish freezes content, blocks unpublished runs and keeps already accepte
       pagination: null,
       waitTimeoutMs: 3000,
       maxRecords: 10,
+      dedupe: [],
     };
     await ui.evaluate(
       ({ id, recipe, url, profileId }) =>

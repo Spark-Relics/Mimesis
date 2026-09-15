@@ -97,6 +97,7 @@ test("detail traversal opens each row, merges detail fields and returns to the l
       },
       waitTimeoutMs: 3000,
       maxRecords: 10,
+      dedupe: [],
     };
     await ui.evaluate(
       ({ id, recipe, url, profileId }) =>

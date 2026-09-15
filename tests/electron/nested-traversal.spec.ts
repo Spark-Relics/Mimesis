@@ -121,6 +121,7 @@ test("nested traversal extracts detail-page rows and opens their child pages in 
       },
       waitTimeoutMs: 3000,
       maxRecords: 10,
+      dedupe: [],
     };
     await ui.evaluate(
       ({ id, recipe, url, profileId }) =>

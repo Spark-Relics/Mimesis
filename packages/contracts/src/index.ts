@@ -178,6 +178,14 @@ export const collectionWorkflowSchema = z.strictObject({
   detail: detailSchema.optional(),
   waitTimeoutMs: z.number().int().min(100).max(15_000),
   maxRecords: z.number().int().min(1).max(2000),
+  /**
+   * Field names whose values form the deduplication key. Empty means the whole
+   * record is the key. Publish validation requires every name to be an output field.
+   */
+  dedupe: z
+    .array(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/u))
+    .max(8)
+    .default([]),
 });
 export type CollectionWorkflow = z.infer<typeof collectionWorkflowSchema>;
 /** Fixed input/output schema deterministically derived from an immutable workflow. */

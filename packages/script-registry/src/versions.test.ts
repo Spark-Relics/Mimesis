@@ -26,6 +26,7 @@ const recipe: CollectionWorkflow = {
   pagination: { next: ".next", maxPages: 3 },
   waitTimeoutMs: 300,
   maxRecords: 10,
+  dedupe: [],
 };
 
 function version(overrides: Partial<WorkflowVersion> = {}): WorkflowVersion {
@@ -84,6 +85,7 @@ describe("workflowDigest", () => {
         { value: "{{query}}-{{page}}", selector: "#page", kind: "fill" },
       ],
       version: 1,
+      dedupe: [],
     };
     expect(workflowDigest("https://example.com/", reordered)).toBe(
       workflowDigest("https://example.com/", recipe),

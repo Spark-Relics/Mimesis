@@ -96,6 +96,7 @@ export const zhCN = {
   flowChildrenHint: "对每个嵌套行继续打开子详情页并合并字段，最多三层。",
   flowTimeout: "每步等待上限（毫秒）",
   flowMaxRecords: "最多记录数",
+  flowDedupe: "去重字段（逗号分隔，留空按整行去重）",
   flowSource: "流程脚本（JSON）",
   flowSourceHint: "这是可保存并执行的声明式流程。修改后点击应用脚本；当前不执行任意 JavaScript。",
   flowInvalidScript: "流程配置无效，请检查字段与上限",
@@ -465,6 +466,7 @@ export const enUS: Record<MessageKey, string> = {
     "Open a child detail page for each nested row and merge its fields, up to three levels.",
   flowTimeout: "Step wait limit (ms)",
   flowMaxRecords: "Maximum records",
+  flowDedupe: "Dedupe fields (comma separated; empty = whole record)",
   flowSource: "Workflow script (JSON)",
   flowSourceHint:
     "A saved, executable declarative workflow. Apply edits before saving; arbitrary JavaScript is not executed.",

@@ -8,7 +8,8 @@ import {
 import type { HttpPort, ScriptContext } from "@clawler/script-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { collectPages, dryRunWorkflow, planWorkflow, resolveWorkflow } from "./collection";
-import { parameterNames } from "./versions";
+import { dedupeKey } from "./fields";
+import { parameterNames, validateForPublish } from "./versions";
 
 /** Request actions carry a URL instead of a selector; both matter in `act` evidence. */
 function actionTarget(action: WorkflowAction): string {
@@ -29,6 +30,7 @@ const recipe: CollectionWorkflow = {
   pagination: { next: ".next", maxPages: 3 },
   waitTimeoutMs: 300,
   maxRecords: 10,
+  dedupe: [],
 };
 
 function fixture(
@@ -284,6 +286,55 @@ describe("reusable collection interpreter", () => {
       ".item",
       undefined,
     ]);
+  });
+
+  it("deduplicates by configured field names across pages", async () => {
+    vi.useFakeTimers();
+    // Same name on both pages; the second copy with a different extra field is dropped.
+    const pages = [
+      [{ name: "A", note: "first" }],
+      [
+        { name: "A", note: "second" },
+        { name: "B", note: "x" },
+      ],
+    ];
+    const { ctx } = fixture(pages);
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      dedupe: ["name"],
+      extract: {
+        items: ".item",
+        fields: [
+          { name: "name", selector: ".name", attribute: "text", required: true },
+          { name: "note", selector: ".note", attribute: "text", required: false },
+        ],
+      },
+    };
+    const resultPromise = collectPages(ctx, {
+      url: "https://example.com",
+      workflow,
+      parameters: { query: "hello" },
+    });
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+    expect(result.records).toEqual([
+      { name: "A", note: "first" },
+      { name: "B", note: "x" },
+    ]);
+  });
+
+  it("falls back to the whole-record key when a record carries no dedupe field", () => {
+    expect(dedupeKey({ a: "1", b: "2" }, ["missing"])).toBe(JSON.stringify({ a: "1", b: "2" }));
+    expect(dedupeKey({ a: "1", b: "2" }, ["a"])).toBe(JSON.stringify([["a", "1"]]));
+    expect(dedupeKey({ a: "1" }, [])).toBe(JSON.stringify({ a: "1" }));
+  });
+
+  it("accepts dedupe fields that exist in the plan output and rejects unknown or duplicate names", () => {
+    expect(() => validateForPublish({ ...recipe, dedupe: ["name"] })).not.toThrow();
+    expect(() => validateForPublish({ ...recipe, dedupe: ["ghost"] })).toThrow("INVALID_INPUT");
+    expect(() => validateForPublish({ ...recipe, dedupe: ["name", "name"] })).toThrow(
+      "INVALID_INPUT",
+    );
   });
 
   it("runs only the conditional actions whose element is present and records the rest as skipped", async () => {
