@@ -236,6 +236,70 @@ describe("reusable collection interpreter", () => {
     expect(steps.at(-1)?.skipped).toBe(false);
   });
 
+  it("retries a transient request failure up to the configured attempts", async () => {
+    const { ctx, http } = fixture([[{ name: "A" }]]);
+    let calls = 0;
+    http.fetch = vi.fn(async () => {
+      calls++;
+      if (calls < 3) throw new AppError("TIMEOUT");
+      return { status: 200, body: "ok" };
+    });
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [
+        {
+          kind: "request",
+          request: {
+            method: "GET",
+            url: "https://api.example.com/search",
+            headers: {},
+            timeoutMs: 5000,
+            expectStatus: 200,
+            retries: 2,
+            retryDelayMs: 0,
+          },
+        },
+      ],
+      pagination: null,
+    };
+    const result = await collectPages(ctx, { url: "https://example.com", workflow });
+    // Two failed attempts are replayed, then the third succeeds.
+    expect(calls).toBe(3);
+    expect(result.records).toEqual([{ name: "A" }]);
+  });
+
+  it("stops retrying once attempts are exhausted and fails the step", async () => {
+    const { ctx, http } = fixture([[{ name: "A" }]]);
+    let calls = 0;
+    http.fetch = vi.fn(async () => {
+      calls++;
+      return { status: 503, body: "unavailable" };
+    });
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [
+        {
+          kind: "request",
+          request: {
+            method: "GET",
+            url: "https://api.example.com/search",
+            headers: {},
+            timeoutMs: 5000,
+            expectStatus: 200,
+            retries: 1,
+            retryDelayMs: 0,
+          },
+        },
+      ],
+      pagination: null,
+    };
+    await expect(collectPages(ctx, { url: "https://example.com", workflow })).rejects.toThrow(
+      "REQUEST_FAILED",
+    );
+    // The original attempt plus one retry, and no capture is stored.
+    expect(calls).toBe(2);
+  });
+
   it("rejects response references that no preceding request captures", () => {
     const workflow: CollectionWorkflow = {
       ...recipe,

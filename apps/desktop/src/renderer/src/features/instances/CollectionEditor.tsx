@@ -162,6 +162,40 @@ export function CollectionEditor({
                       });
                     }}
                   />
+                  <input
+                    type="number"
+                    min={0}
+                    max={5}
+                    aria-label={t("flowRequestRetries")}
+                    placeholder={t("flowRequestRetriesPlaceholder")}
+                    value={entry.request.retries ?? 0}
+                    disabled={disabled}
+                    onChange={(event) => {
+                      const value = Number(event.target.value);
+                      const request = { ...entry.request };
+                      // Zero means "no retry"; the key is dropped to keep the digest unchanged.
+                      if (value > 0) request.retries = value;
+                      else delete request.retries;
+                      action(index, { ...entry, request });
+                    }}
+                  />
+                  <input
+                    type="number"
+                    min={0}
+                    max={10000}
+                    aria-label={t("flowRequestRetryDelay")}
+                    placeholder={t("flowRequestRetryDelayPlaceholder")}
+                    value={entry.request.retryDelayMs ?? 500}
+                    disabled={disabled}
+                    onChange={(event) => {
+                      const value = Number(event.target.value);
+                      const request = { ...entry.request };
+                      // The default backoff is omitted from the workflow to keep digests stable.
+                      if (value === 500) delete request.retryDelayMs;
+                      else request.retryDelayMs = value;
+                      action(index, { ...entry, request });
+                    }}
+                  />
                 </div>
               )}
               {entry.kind !== "request" && (

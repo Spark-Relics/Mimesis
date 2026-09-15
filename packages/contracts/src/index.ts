@@ -78,6 +78,14 @@ export const httpRequestSchema = z.strictObject({
   timeoutMs: z.number().int().min(100).max(30_000).default(10_000),
   /** Fail unless the response status equals this value. */
   expectStatus: z.number().int().min(100).max(599).default(200),
+  /**
+   * Extra attempts after a failed request (network error, timeout or status
+   * mismatch), bounded to 5. Absent means no retry; cancellation still stops
+   * immediately, so a retry never survives an aborted run.
+   */
+  retries: z.number().int().min(0).max(5).optional(),
+  /** Delay between retry attempts in ms; absent means the default backoff. */
+  retryDelayMs: z.number().int().min(0).max(10_000).optional(),
   /** Captured response body (bounded) is addressable later as `{{response:name}}`. */
   capture: z
     .strictObject({

@@ -151,7 +151,8 @@ export function planWorkflow(input: CollectionWorkflow): WorkflowPlan {
   });
 }
 
-async function pause(signal: AbortSignal): Promise<void> {
+/** Abort-aware delay; rejects with the run's reason when cancelled. */
+async function wait(signal: AbortSignal, ms: number): Promise<void> {
   signal.throwIfAborted();
   await new Promise<void>((resolve, reject) => {
     const abort = () => {
@@ -161,10 +162,17 @@ async function pause(signal: AbortSignal): Promise<void> {
     const timer = setTimeout(() => {
       signal.removeEventListener("abort", abort);
       resolve();
-    }, 150);
+    }, ms);
     signal.addEventListener("abort", abort, { once: true });
   });
 }
+
+async function pause(signal: AbortSignal): Promise<void> {
+  await wait(signal, 150);
+}
+
+/** Default backoff between request retries when the workflow does not set one. */
+const defaultRetryDelayMs = 500;
 
 /** A configured record filter: falsy results drop the record before dedupe/budget. */
 function passesFilter(workflow: CollectionWorkflow, row: FieldRow): boolean {
@@ -242,21 +250,37 @@ export async function collectPages(
       const label = `request: ${spec.method} ${spec.url}`;
       const run = async (): Promise<void> => {
         if (!ctx.http) throw new AppError("INVALID_INPUT");
-        const response = await ctx.http.fetch(
-          {
-            method: spec.method,
-            url: substituteCaptures(spec.url),
-            headers: Object.fromEntries(
-              Object.entries(spec.headers).map(([key, value]) => [key, substituteCaptures(value)]),
-            ),
-            ...(spec.body !== undefined && { body: substituteCaptures(spec.body) }),
-          },
-          spec.timeoutMs,
-          spec.capture?.maxLength ?? 4096,
-          ctx.signal,
-        );
-        if (response.status !== spec.expectStatus) throw new AppError("REQUEST_FAILED");
-        if (spec.capture) captures[spec.capture.name] = response.body;
+        const request = {
+          method: spec.method,
+          url: substituteCaptures(spec.url),
+          headers: Object.fromEntries(
+            Object.entries(spec.headers).map(([key, value]) => [key, substituteCaptures(value)]),
+          ),
+          ...(spec.body !== undefined && { body: substituteCaptures(spec.body) }),
+        };
+        // Bounded retry: a failed attempt (network/timeout/status) is replayed until
+        // attempts run out; cancellation aborts the loop rather than retrying.
+        const attempts = (spec.retries ?? 0) + 1;
+        const delayMs = spec.retryDelayMs ?? defaultRetryDelayMs;
+        let lastError: unknown;
+        for (let attempt = 0; attempt < attempts; attempt++) {
+          if (attempt > 0) await wait(ctx.signal, delayMs);
+          try {
+            const response = await ctx.http.fetch(
+              request,
+              spec.timeoutMs,
+              spec.capture?.maxLength ?? 4096,
+              ctx.signal,
+            );
+            if (response.status !== spec.expectStatus) throw new AppError("REQUEST_FAILED");
+            if (spec.capture) captures[spec.capture.name] = response.body;
+            return;
+          } catch (error) {
+            ctx.signal.throwIfAborted();
+            lastError = error;
+          }
+        }
+        throw lastError;
       };
       // `when` for a request is validated against the page, mirroring element actions.
       if (action.when && !(await browser.exists(action.when.exists, ctx.signal))) {
