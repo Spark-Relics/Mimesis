@@ -198,6 +198,17 @@ export const collectionWorkflowSchema = z.strictObject({
    * Referenced field names must be output fields (publish validation).
    */
   filter: z.string().max(1000).optional(),
+  /**
+   * Optional incremental watermark: only records whose `field` value exceeds
+   * the previous run's watermark (numeric when both parse, else string
+   * comparison) join the dataset. The run's new high-water value is returned
+   * in the snapshot for the next run.
+   */
+  watermark: z
+    .strictObject({
+      field: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/u),
+    })
+    .optional(),
 });
 export type CollectionWorkflow = z.infer<typeof collectionWorkflowSchema>;
 /** Fixed input/output schema deterministically derived from an immutable workflow. */
@@ -293,8 +304,11 @@ export const documentSchema = z.object({
         "no-new-records",
         "page-limit",
         "record-limit",
+        "watermark-reached",
       ]),
       truncated: z.boolean(),
+      /** New high-water value of the configured watermark field; present only when configured. */
+      watermark: z.string().optional(),
     })
     .optional(),
 });

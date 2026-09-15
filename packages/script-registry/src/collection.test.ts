@@ -502,6 +502,57 @@ describe("reusable collection interpreter", () => {
     expect(recordLimited.collection?.stopReason).toBe("record-limit");
   });
 
+  it("keeps only records past the previous watermark and reports the new high-water value", async () => {
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [],
+      extract: {
+        items: ".item",
+        fields: [
+          { name: "id", selector: ".id", attribute: "text", required: true, type: "number" },
+        ],
+      },
+      watermark: { field: "id" },
+    };
+    const { ctx } = fixture([[{ id: "1" }, { id: "5" }, { id: "3" }]]);
+    const result = await collectPages(ctx, {
+      url: "https://example.com",
+      workflow,
+      watermark: "2",
+    });
+    expect(result.records).toEqual([{ id: 5 }, { id: 3 }]);
+    expect(result.collection).toEqual({
+      pages: 1,
+      stopReason: "next-unavailable",
+      truncated: false,
+      watermark: "5",
+    });
+  });
+
+  it("stops with watermark-reached when a page yields nothing past the watermark", async () => {
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [],
+      watermark: { field: "name" },
+    };
+    const { ctx } = fixture([[{ name: "A" }]]);
+    const result = await collectPages(ctx, {
+      url: "https://example.com",
+      workflow,
+      watermark: "B",
+    });
+    expect(result.records).toEqual([]);
+    expect(result.collection?.stopReason).toBe("watermark-reached");
+  });
+
+  it("publish validation accepts a known watermark field and rejects unknown names", () => {
+    const base: CollectionWorkflow = { ...recipe, watermark: { field: "name" } };
+    expect(validateForPublish(base).watermark).toEqual({ field: "name" });
+    expect(() => validateForPublish({ ...recipe, watermark: { field: "ghost" } })).toThrow(
+      "INVALID_INPUT",
+    );
+  });
+
   it("aborts a page wait without subsequent actions or inspection", async () => {
     vi.useFakeTimers();
     const { ctx, controller, automation } = fixture([[]]);

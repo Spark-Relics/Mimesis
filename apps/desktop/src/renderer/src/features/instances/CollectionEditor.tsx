@@ -382,6 +382,23 @@ export function CollectionEditor({
         </div>
         <div className="workflow-form-row">
           <label className="workflow-field">
+            {t("flowWatermark")}
+            <input
+              value={workflow.watermark?.field ?? ""}
+              disabled={disabled}
+              placeholder={t("flowWatermark")}
+              onChange={(event) => {
+                const value = event.target.value.trim();
+                const next = { ...workflow };
+                // An empty field means "no incremental watermark", so the key is dropped.
+                if (value === "") delete next.watermark;
+                else next.watermark = { field: value };
+                onChange(next);
+              }}
+            />
+            <span className="workflow-hint">{t("flowWatermarkHint")}</span>
+          </label>
+          <label className="workflow-field">
             {t("flowFilter")}
             <input
               value={workflow.filter ?? ""}

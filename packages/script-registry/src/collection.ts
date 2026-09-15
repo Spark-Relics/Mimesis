@@ -174,6 +174,32 @@ function passesFilter(workflow: CollectionWorkflow, row: FieldRow): boolean {
   return evaluateFilter(workflow.filter, row);
 }
 
+/**
+ * Incremental watermark comparison: numeric when both values parse to finite
+ * numbers, otherwise plain string comparison. Equal values do not pass.
+ */
+/** String form of a field value; browser extraction yields strings, unit fixtures may not. */
+function fieldValueText(value: CollectionRecordValue | undefined): string {
+  if (value === undefined) return "";
+  if (typeof value === "string") return value;
+  return String(value);
+}
+
+function exceedsWatermark(field: string, row: FieldRow, previous: string | undefined): boolean {
+  if (previous === undefined) return true;
+  const raw = fieldValueText(row[field]);
+  const left = Number(raw);
+  const right = Number(previous);
+  if (
+    raw.trim() !== "" &&
+    previous.trim() !== "" &&
+    Number.isFinite(left) &&
+    Number.isFinite(right)
+  )
+    return left > right;
+  return raw > previous;
+}
+
 /** Shared admission gate for a candidate record: filter, dedupe, then record/byte budget. */
 function admitRecord(
   workflow: CollectionWorkflow,
@@ -181,7 +207,10 @@ function admitRecord(
   records: FieldRow[],
   seen: Set<string>,
   bytes: number,
+  previousWatermark: string | undefined,
 ): { admitted: boolean; bytes: number; limit: boolean } {
+  if (workflow.watermark && !exceedsWatermark(workflow.watermark.field, row, previousWatermark))
+    return { admitted: false, bytes, limit: false };
   if (!passesFilter(workflow, row)) return { admitted: false, bytes, limit: false };
   const key = dedupeKey(row, workflow.dedupe);
   if (seen.has(key)) return { admitted: false, bytes, limit: false };
@@ -263,6 +292,21 @@ export async function collectPages(
   let bytes = 0;
   let detailCapped = false;
   let stopReason: NonNullable<DocumentSnapshot["collection"]>["stopReason"] = "single-page";
+  // Incremental watermark: the previous run's value, and the new high-water value of this run.
+  const watermarkField = workflow.watermark?.field;
+  let previousWatermark: string | undefined;
+  if (watermarkField) previousWatermark = input.watermark;
+  let watermark: string | undefined;
+  const trackWatermark = (row: FieldRow): void => {
+    if (!watermarkField) return;
+    const raw = fieldValueText(row[watermarkField]);
+    if (raw === "") return;
+    if (
+      watermark === undefined ||
+      exceedsWatermark(watermarkField, { [watermarkField]: raw }, watermark)
+    )
+      watermark = raw;
+  };
   while (true) {
     ctx.signal.throwIfAborted();
     const rows = await ctx.step(
@@ -296,13 +340,16 @@ export async function collectPages(
     pages++;
     let added = 0;
     for (const row of rows) {
-      const result = admitRecord(workflow, row, records, seen, bytes);
+      const result = admitRecord(workflow, row, records, seen, bytes, previousWatermark);
       bytes = result.bytes;
       if (result.limit) {
         stopReason = "record-limit";
         break;
       }
-      if (result.admitted) added++;
+      if (result.admitted) {
+        added++;
+        trackWatermark(row);
+      }
     }
     if (stopReason === "record-limit") break;
     // Detail traversal runs once per list page, before pagination advances.
@@ -312,14 +359,17 @@ export async function collectPages(
       stopReason: stopReason as CollectionBudget["stopReason"],
     };
     detailCapped =
-      (await traverseDetails(ctx, browser, workflow, rows, records, budget)) || detailCapped;
+      (await traverseDetails(ctx, browser, workflow, rows, records, budget, previousWatermark)) ||
+      detailCapped;
     bytes = budget.bytes;
     if (budget.stopReason === "record-limit") {
       stopReason = "record-limit";
       break;
     }
     if (added === 0) {
-      stopReason = "no-new-records";
+      // With an active watermark an empty page means the previous high-water mark was reached.
+      if (previousWatermark !== undefined) stopReason = "watermark-reached";
+      else stopReason = "no-new-records";
       break;
     }
     if (!workflow.pagination) break;
@@ -352,6 +402,7 @@ export async function collectPages(
       pages,
       stopReason,
       truncated: stopReason === "page-limit" || stopReason === "record-limit" || detailCapped,
+      ...(watermark !== undefined && { watermark }),
     },
   };
 }
@@ -380,6 +431,7 @@ async function traverseDetails(
   rows: FieldRow[],
   records: FieldRow[],
   budget: CollectionBudget,
+  previousWatermark: string | undefined,
 ): Promise<boolean> {
   const detail = workflow.detail;
   if (!detail) return false;
@@ -419,7 +471,14 @@ async function traverseDetails(
         if (child) {
           // Nested rows must land in the dataset first so child merges have targets.
           for (const row of nested) {
-            const result = admitRecord(workflow, row, records, budget.seen, budget.bytes);
+            const result = admitRecord(
+              workflow,
+              row,
+              records,
+              budget.seen,
+              budget.bytes,
+              previousWatermark,
+            );
             budget.bytes = result.bytes;
             if (result.limit) {
               budget.stopReason = "record-limit";
@@ -434,11 +493,19 @@ async function traverseDetails(
               nested,
               records,
               budget,
+              previousWatermark,
             );
           }
         } else {
           for (const row of nested) {
-            const result = admitRecord(workflow, row, records, budget.seen, budget.bytes);
+            const result = admitRecord(
+              workflow,
+              row,
+              records,
+              budget.seen,
+              budget.bytes,
+              previousWatermark,
+            );
             budget.bytes = result.bytes;
             if (result.limit) {
               budget.stopReason = "record-limit";

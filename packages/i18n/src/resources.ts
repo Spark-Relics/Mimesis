@@ -87,6 +87,9 @@ export const zhCN = {
   flowLoop: "循环与停止条件",
   flowLoopHint:
     "提取 → 去重 → 点击下一页 → 等待内容更新 → 再提取。无下一页或无新增数据时停止；达到上限会标记截断。",
+  flowWatermark: "增量水位字段（可选）",
+  flowWatermarkHint:
+    "填写输出字段名后仅保留超过上次水位的记录（数值可解析则按数值比较，否则按字符串比较），本次运行的最高值随结果返回，供下次运行使用。",
   flowEnableLoop: "启用翻页循环",
   flowNext: "下一页按钮选择器",
   flowMaxPages: "最多页数",
@@ -469,6 +472,9 @@ export const enUS: Record<MessageKey, string> = {
   flowLoop: "Loop & stopping conditions",
   flowLoopHint:
     "Extract → deduplicate → click next → wait for new content → repeat. Stop when no next page or no new records remain. Limits mark results as truncated.",
+  flowWatermark: "Incremental watermark field (optional)",
+  flowWatermarkHint:
+    "Enter an output field name to keep only records past the previous run's watermark (numeric comparison when both parse, otherwise string). The run's high-water value is returned with the result for the next run.",
   flowEnableLoop: "Enable pagination loop",
   flowNext: "Next page selector",
   flowMaxPages: "Maximum pages",

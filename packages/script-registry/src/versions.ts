@@ -73,6 +73,8 @@ export function validateForPublish(input: unknown): CollectionWorkflow {
     for (const name of filterFieldNames(workflow.filter))
       if (!names.has(name)) throw new AppError("INVALID_INPUT");
   }
+  if (workflow.watermark && !outputFieldNames(workflow).has(workflow.watermark.field))
+    throw new AppError("INVALID_INPUT");
   for (const action of workflow.before) {
     if (action.kind !== "request") continue;
     // Duplicate capture names would silently overwrite earlier responses.

@@ -63,6 +63,8 @@ export interface ScriptInput {
   url: string;
   workflow?: CollectionWorkflow;
   parameters?: Record<string, string>;
+  /** Previous run's watermark value; enables incremental collection when the workflow configures one. */
+  watermark?: string;
 }
 
 /** Bundled trusted scripts only. Untrusted source must use a future isolated runtime adapter. */
