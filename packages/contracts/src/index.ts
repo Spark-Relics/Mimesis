@@ -116,6 +116,8 @@ export const workflowActionSchema = z.discriminatedUnion("kind", [
 export const extractionSchema = z
   .strictObject({
     items: selectorSchema,
+    /** What happens when a row is missing a required field. Absent means "page": the whole extraction returns nothing. */
+    missing: z.enum(["page", "row"]).optional(),
     fields: z
       .array(
         z.strictObject({

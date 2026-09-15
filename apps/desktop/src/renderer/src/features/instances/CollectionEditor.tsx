@@ -264,6 +264,11 @@ export function CollectionEditor({
             }
           />
         </label>
+        <MissingPolicySelect
+          extraction={workflow.extract}
+          disabled={disabled}
+          onChange={(extract) => onChange({ ...workflow, extract })}
+        />
         <ExtractionFields
           fields={workflow.extract.fields}
           disabled={disabled}
@@ -533,6 +538,11 @@ function TraversalEditor({
           }}
         />
       </label>
+      <MissingPolicySelect
+        extraction={node.extract}
+        disabled={disabled}
+        onChange={(extract) => onNode({ ...node, extract })}
+      />
       <ExtractionFields
         fields={node.extract.fields}
         disabled={disabled}
@@ -615,6 +625,43 @@ function TraversalEditor({
 }
 
 /** Editor for the nested-row extraction on a detail page. */
+/** Shared bad-record policy selector so all three extraction points behave identically. */
+function MissingPolicySelect({
+  extraction,
+  disabled,
+  onChange,
+}: {
+  extraction: Extraction;
+  disabled: boolean;
+  onChange(extraction: Extraction): void;
+}) {
+  const { t } = useI18n();
+  return (
+    <label className="workflow-field">
+      {t("flowMissing")}
+      <select
+        aria-label={t("flowMissing")}
+        title={t("flowMissingHint")}
+        value={extraction.missing ?? "page"}
+        disabled={disabled}
+        onChange={(event) => {
+          const mode = event.target.value as NonNullable<Extraction["missing"]>;
+          // "page" is the historical default; dropping the key keeps old digests identical.
+          if (mode === "page") {
+            const { missing: _removed, ...rest } = extraction;
+            onChange(rest);
+          } else {
+            onChange({ ...extraction, missing: mode });
+          }
+        }}
+      >
+        <option value="page">{t("flowMissingPage")}</option>
+        <option value="row">{t("flowMissingRow")}</option>
+      </select>
+    </label>
+  );
+}
+
 function RowsEditor({
   rows,
   disabled,
@@ -635,6 +682,7 @@ function RowsEditor({
           onChange={(event) => onChange({ ...rows, items: event.target.value })}
         />
       </label>
+      <MissingPolicySelect extraction={rows} disabled={disabled} onChange={onChange} />
       <ExtractionFields
         fields={rows.fields}
         disabled={disabled}

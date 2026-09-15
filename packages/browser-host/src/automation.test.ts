@@ -98,6 +98,17 @@ describe("browser action mediation", () => {
     expect(scoped).toContain('".detail-link"');
   });
 
+  it("keeps incomplete rows visible for the row policy", async () => {
+    const { automation, sendCommand } = fixture();
+    const signal = new AbortController().signal;
+    const rows = { records: [{ name: "complete" }, { name: "" }, { name: "complete-2" }] };
+    // "row" defers dropping to the host-side gate, so the incomplete record travels back.
+    sendCommand.mockResolvedValueOnce({ result: { value: rows } });
+    expect(await automation.extract({ ...extraction, missing: "row" }, signal)).toEqual(
+      rows.records,
+    );
+  });
+
   it("rejects item actions without a matching snapshot entry", async () => {
     const { automation, sendCommand } = fixture();
     sendCommand.mockResolvedValueOnce({ result: { value: { paths: ["body>article"] } } });

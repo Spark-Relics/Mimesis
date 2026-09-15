@@ -76,6 +76,11 @@ export const zhCN = {
   flowNormalizeHint:
     "提取后、表达式计算前处理字段值：trim 去首尾空白，collapse 去首尾并把连续空白折叠为单个空格，upper/lower 转大小写。",
   flowAddField: "添加字段",
+  flowMissing: "坏记录策略",
+  flowMissingPage: "整页（默认）",
+  flowMissingRow: "仅丢行",
+  flowMissingHint:
+    "必填字段缺失时的处理：整页（默认）丢弃该页全部记录并等待重试；仅丢行丢弃该条记录、保留其余记录。",
   flowLoop: "循环与停止条件",
   flowLoopHint:
     "提取 → 去重 → 点击下一页 → 等待内容更新 → 再提取。无下一页或无新增数据时停止；达到上限会标记截断。",
@@ -450,6 +455,11 @@ export const enUS: Record<MessageKey, string> = {
   flowNormalizeHint:
     "Applied after extraction, before expressions: trim removes outer whitespace, collapse also squashes inner whitespace runs to single spaces, upper/lower change case.",
   flowAddField: "Add field",
+  flowMissing: "Bad-record policy",
+  flowMissingPage: "Whole page (default)",
+  flowMissingRow: "Drop row",
+  flowMissingHint:
+    "What happens when a required field is missing: whole page (default) voids all records of that page so extraction can retry; drop row discards only that record.",
   flowLoop: "Loop & stopping conditions",
   flowLoopHint:
     "Extract → deduplicate → click next → wait for new content → repeat. Stop when no next page or no new records remain. Limits mark results as truncated.",

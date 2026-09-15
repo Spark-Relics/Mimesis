@@ -92,7 +92,13 @@ function extractPage(input: Extraction) {
         value = value.trim();
         if (value.length > 16_000) return { error: "INVALID_INPUT" };
         // A row may be present before an asynchronous field has loaded.
-        if (field.required && !value) return { records: [] };
+        if (field.required && !value) {
+          // "page" keeps the historical semantics: one bad row voids the whole page
+          // so polling can retry once the field loads. "row" defers the decision:
+          // the incomplete record travels back and the host-side gate drops it.
+          if (input.missing === "row") break;
+          return { records: [] };
+        }
         pairs.push([field.name, value]);
       }
       records.push(Object.fromEntries(pairs));

@@ -9,7 +9,7 @@ import type { HttpPort, ScriptContext } from "@clawler/script-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { collectPages, dryRunWorkflow, planWorkflow, resolveWorkflow } from "./collection";
 import { dedupeKey } from "./fields";
-import { parameterNames, validateForPublish } from "./versions";
+import { parameterNames, validateForPublish, workflowDigest } from "./versions";
 
 /** Request actions carry a URL instead of a selector; both matter in `act` evidence. */
 function actionTarget(action: WorkflowAction): string {
@@ -327,6 +327,24 @@ describe("reusable collection interpreter", () => {
     expect(dedupeKey({ a: "1", b: "2" }, ["missing"])).toBe(JSON.stringify({ a: "1", b: "2" }));
     expect(dedupeKey({ a: "1", b: "2" }, ["a"])).toBe(JSON.stringify([["a", "1"]]));
     expect(dedupeKey({ a: "1" }, [])).toBe(JSON.stringify({ a: "1" }));
+  });
+
+  it("accepts the per-extraction missing policy without changing old content digests", () => {
+    const rowPolicy = validateForPublish({
+      ...recipe,
+      extract: { ...recipe.extract, missing: "row" },
+    });
+    expect(rowPolicy.extract.missing).toBe("row");
+    expect(() =>
+      validateForPublish({
+        ...recipe,
+        extract: { ...recipe.extract, missing: "pageX" as unknown as "row" },
+      }),
+    ).toThrow();
+    // Old published content never carries the key; absent must stay identity-neutral.
+    expect(workflowDigest("https://example.com", recipe)).toBe(
+      workflowDigest("https://example.com", { ...recipe, extract: { ...recipe.extract } }),
+    );
   });
 
   it("accepts dedupe fields that exist in the plan output and rejects unknown or duplicate names", () => {
@@ -830,6 +848,27 @@ describe("reusable collection interpreter", () => {
     expect(result.records).toEqual([
       { name: "Cedar Oaks", code: " AB-12 ", label: "Cedar Oaks/ AB-12 " },
     ]);
+  });
+
+  it("drops only incomplete rows when the missing policy is row", async () => {
+    vi.useFakeTimers();
+    const { ctx, automation } = fixture([[]]);
+    automation.extract.mockResolvedValue([{ name: "A" }, { name: "" }, { name: "B" }]);
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [],
+      pagination: null,
+      extract: { ...recipe.extract, missing: "row" },
+    };
+    const pending = collectPages(ctx, { url: "https://example.com", workflow });
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    expect(result.records).toEqual([{ name: "A" }, { name: "B" }]);
+    // The policy travels to the browser port as part of the extraction input.
+    expect(automation.extract).toHaveBeenCalledWith(
+      expect.objectContaining({ missing: "row" }),
+      expect.anything(),
+    );
   });
 
   it("falls back to the configured back control when browser history is unavailable", async () => {

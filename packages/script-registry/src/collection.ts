@@ -21,22 +21,34 @@ function normalizeValue(value: string, mode: "trim" | "collapse" | "upper" | "lo
   return value.trim();
 }
 
+/** Per-row bad-record gate: with missing:"row" an incomplete record is dropped here, not in the page. */
+function dropIncompleteRows(
+  extraction: Extraction,
+  rows: Array<Record<string, string>>,
+): Array<Record<string, string>> {
+  if (extraction.missing !== "row") return rows;
+  return rows.filter((row) =>
+    extraction.fields.every((field) => !field.required || row[field.name]),
+  );
+}
+
 /** Applies per-field normalization (first) then expression fields (second) in place. */
 function applyExpressions(
   extraction: Extraction,
   rows: Array<Record<string, string>>,
 ): Array<Record<string, string>> {
+  const kept = dropIncompleteRows(extraction, rows);
   for (const field of extraction.fields) {
     if (field.normalize && field.normalize !== "none") {
-      for (const row of rows) {
+      for (const row of kept) {
         const value = row[field.name];
         if (value !== undefined) row[field.name] = normalizeValue(value, field.normalize);
       }
     }
     if (!field.expression) continue;
-    for (const row of rows) row[field.name] = evaluateExpression(field.expression, row);
+    for (const row of kept) row[field.name] = evaluateExpression(field.expression, row);
   }
-  return rows;
+  return kept;
 }
 
 export function resolveWorkflow(
