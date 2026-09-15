@@ -8,6 +8,7 @@ import {
 } from "@clawler/contracts";
 import type {
   BrowserPort,
+  HttpPort,
   ScriptContext,
   ScriptDefinition,
   ScriptInput,
@@ -24,6 +25,7 @@ export class TaskRunner {
   constructor(
     private readonly browser: BrowserPort,
     private readonly timeoutMs = 30_000,
+    private readonly http?: HttpPort,
   ) {}
 
   get busy(): boolean {
@@ -123,6 +125,7 @@ export class TaskRunner {
     const context: ScriptContext = {
       signal,
       browser: this.browser,
+      ...(this.http && { http: this.http }),
       skip: (kind: StepKind, detail?: string): void => {
         if (signal.aborted) return;
         const current = record(kind, detail);

@@ -3,10 +3,18 @@ import {
   type CollectionWorkflow,
   type DetailTraversal,
   type StepKind,
+  type WorkflowAction,
 } from "@clawler/contracts";
-import type { ScriptContext } from "@clawler/script-sdk";
+import type { HttpPort, ScriptContext } from "@clawler/script-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { collectPages, dryRunWorkflow, planWorkflow, resolveWorkflow } from "./collection";
+import { parameterNames } from "./versions";
+
+/** Request actions carry a URL instead of a selector; both matter in `act` evidence. */
+function actionTarget(action: WorkflowAction): string {
+  if (action.kind === "request") return action.request.url;
+  return action.selector;
+}
 
 const recipe: CollectionWorkflow = {
   version: 1,
@@ -33,9 +41,10 @@ function fixture(
   const controller = new AbortController();
   const steps: Array<{ kind: StepKind; detail: string | undefined; skipped: boolean }> = [];
   const automation = {
-    act: vi.fn(async (action: { kind: string; selector: string }) => {
-      if (failOn && action.selector === failOn) throw new AppError("TIMEOUT");
-      if (action.selector === ".next") index++;
+    act: vi.fn(async (action: WorkflowAction) => {
+      if (failOn && "selector" in action && action.selector === failOn)
+        throw new AppError("TIMEOUT");
+      if ("selector" in action && action.selector === ".next") index++;
     }),
     extract: vi.fn(async () => pages[index] ?? []),
     snapshotItems: vi.fn(async () => 0),
@@ -45,8 +54,10 @@ function fixture(
       return index < pages.length - 1;
     }),
   };
+  const http: HttpPort = { fetch: vi.fn(async () => ({ status: 200, body: "" })) };
   const ctx: ScriptContext = {
     signal: controller.signal,
+    http,
     browser: {
       automation,
       navigate: vi.fn(async () => undefined),
@@ -74,7 +85,7 @@ function fixture(
       steps.push({ kind, detail, skipped: true });
     },
   };
-  return { ctx, automation, controller, steps };
+  return { ctx, automation, controller, steps, http };
 }
 
 afterEach(() => vi.useRealTimers());
@@ -155,6 +166,84 @@ describe("reusable collection interpreter", () => {
     expect(() => resolveWorkflow(recipe)).toThrow("INVALID_INPUT");
   });
 
+  it("performs HTTP requests, captures bodies, and feeds them into later fill actions", async () => {
+    const { ctx, steps, http, automation } = fixture([[{ name: "A" }]]);
+    const seen: Array<{ method: string; url: string; body?: string }> = [];
+    http.fetch = vi.fn(async (request) => {
+      seen.push({ ...request });
+      return { status: 200, body: `token-for-${request.url.split("q=")[1] ?? ""}` };
+    });
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [
+        {
+          kind: "request",
+          request: {
+            method: "GET",
+            url: "https://api.example.com/search?q={{query}}",
+            headers: {},
+            timeoutMs: 5000,
+            expectStatus: 200,
+            capture: { name: "token", maxLength: 64000 },
+          },
+        },
+        { kind: "fill", selector: "#search", value: "{{response:token}}" },
+      ],
+      pagination: null,
+    };
+    const result = await collectPages(ctx, {
+      url: "https://example.com",
+      workflow,
+      parameters: { query: "hello" },
+    });
+    expect(seen).toEqual([
+      { method: "GET", url: "https://api.example.com/search?q=hello", headers: {} },
+    ]);
+    expect(result.records).toEqual([{ name: "A" }]);
+    expect(steps.map((entry) => entry.kind)).toContain("request");
+    // The captured body reached the fill value after parameters resolved.
+    const fillCall = automation.act.mock.calls.find(([action]) => action.kind === "fill");
+    expect(fillCall?.[0]).toMatchObject({ kind: "fill", value: "token-for-hello" });
+  });
+
+  it("fails the run when an HTTP response does not match expectStatus", async () => {
+    const { ctx, steps, http } = fixture([[{ name: "A" }]]);
+    http.fetch = vi.fn(async () => ({ status: 503, body: "unavailable" }));
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [
+        {
+          kind: "request",
+          request: {
+            method: "GET",
+            url: "https://api.example.com/search",
+            headers: {},
+            timeoutMs: 5000,
+            expectStatus: 200,
+          },
+        },
+      ],
+      pagination: null,
+    };
+    const rejection = collectPages(ctx, {
+      url: "https://example.com",
+      workflow,
+      parameters: {},
+    });
+    await expect(rejection).rejects.toThrow("REQUEST_FAILED");
+    expect(steps.at(-1)?.skipped).toBe(false);
+  });
+
+  it("rejects response references that no preceding request captures", () => {
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [{ kind: "fill", selector: "#search", value: "{{response:missing}}" }],
+      pagination: null,
+    };
+    expect(() => resolveWorkflow(workflow)).not.toThrow();
+    expect(() => parameterNames(workflow)).toThrow("INVALID_INPUT");
+  });
+
   it("runs setup once, paginates, deduplicates overlap, and reports an absent next button", async () => {
     vi.useFakeTimers();
     const { ctx, automation, steps } = fixture([[{ name: "A" }], [{ name: "A" }, { name: "B" }]]);
@@ -171,7 +260,7 @@ describe("reusable collection interpreter", () => {
       stopReason: "next-unavailable",
       truncated: false,
     });
-    expect(automation.act.mock.calls.map(([action]) => action.selector)).toEqual([
+    expect(automation.act.mock.calls.map(([action]) => actionTarget(action))).toEqual([
       "#search",
       "#submit",
       ".next",
@@ -214,7 +303,7 @@ describe("reusable collection interpreter", () => {
       parameters: { query: "hello" },
     });
     expect(result.records).toEqual([{ name: "A" }]);
-    expect(automation.act.mock.calls.map(([action]) => action.selector)).toEqual([
+    expect(automation.act.mock.calls.map(([action]) => actionTarget(action))).toEqual([
       "#search",
       "#submit",
     ]);

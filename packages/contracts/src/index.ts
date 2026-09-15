@@ -23,6 +23,7 @@ export const errorCodeSchema = z.enum([
   "NO_PUBLISHED_VERSION",
   "VERSION_CONFLICT",
   "VERSION_LIMIT",
+  "REQUEST_FAILED",
 ]);
 export type ErrorCode = z.infer<typeof errorCodeSchema>;
 
@@ -68,6 +69,23 @@ const selectorSchema = z.string().trim().min(1).max(2048);
 export const workflowConditionSchema = z.strictObject({ exists: selectorSchema });
 /** `skip` records a failed best-effort action without aborting the run; the default is `fail`. */
 export const actionErrorSchema = z.enum(["fail", "skip"]);
+/** Bounded HTTP request action: parameters substitute `{{name}}` in url/headers/body. */
+export const httpRequestSchema = z.strictObject({
+  method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).default("GET"),
+  url: z.string().trim().min(1).max(2048),
+  headers: z.record(z.string().max(400), z.string().max(4000)).default({}),
+  body: z.string().max(64_000).optional(),
+  timeoutMs: z.number().int().min(100).max(30_000).default(10_000),
+  /** Fail unless the response status equals this value. */
+  expectStatus: z.number().int().min(100).max(599).default(200),
+  /** Captured response body (bounded) is addressable later as `{{response:name}}`. */
+  capture: z
+    .strictObject({
+      name: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/u),
+      maxLength: z.number().int().min(1).max(64_000).default(64_000),
+    })
+    .optional(),
+});
 export const workflowActionSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("fill"),
@@ -85,6 +103,12 @@ export const workflowActionSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("wait"),
     selector: selectorSchema,
+    when: workflowConditionSchema.optional(),
+    onError: actionErrorSchema.optional(),
+  }),
+  z.strictObject({
+    kind: z.literal("request"),
+    request: httpRequestSchema,
     when: workflowConditionSchema.optional(),
     onError: actionErrorSchema.optional(),
   }),
@@ -167,6 +191,7 @@ export const workflowPlanSchema = z.strictObject({
   maxItemsPerPage: z.number().int().min(1).max(500),
 });
 export type WorkflowPlan = z.infer<typeof workflowPlanSchema>;
+export type HttpRequestSpec = z.infer<typeof httpRequestSchema>;
 export type WorkflowAction = z.infer<typeof workflowActionSchema>;
 export type WorkflowCondition = z.infer<typeof workflowConditionSchema>;
 export type ActionError = z.infer<typeof actionErrorSchema>;
@@ -255,7 +280,15 @@ export const documentSchema = z.object({
 export type DocumentSnapshot = z.infer<typeof documentSchema>;
 
 export const runStatusSchema = z.enum(["running", "succeeded", "failed", "cancelled"]);
-export const stepKindSchema = z.enum(["navigate", "inspect", "fill", "click", "wait", "extract"]);
+export const stepKindSchema = z.enum([
+  "navigate",
+  "inspect",
+  "fill",
+  "click",
+  "wait",
+  "extract",
+  "request",
+]);
 export const stepSchema = z.object({
   id: z.string(),
   kind: stepKindSchema,

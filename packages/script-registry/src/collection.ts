@@ -28,18 +28,34 @@ function applyExpressions(
 export function resolveWorkflow(
   input: CollectionWorkflow,
   parameters: Record<string, string> = {},
+  /** Captured response bodies, keyed by capture name. Substitution only; never persisted. */
+  captures: Record<string, string> = {},
 ): CollectionWorkflow {
   const workflow = collectionWorkflowSchema.parse(input);
   const values = workflowParametersSchema.parse(parameters);
+  const substitute = (text: string): string =>
+    text.replace(/\{\{([a-zA-Z][a-zA-Z0-9_:]*)\}\}/gu, (match, name: string) => {
+      if (name.startsWith("response:")) {
+        // Runtime reference: substituted at execution time once the capture exists.
+        const key = name.slice("response:".length);
+        if (Object.hasOwn(captures, key)) return captures[key] ?? "";
+        return match;
+      }
+      if (!Object.hasOwn(values, name)) throw new AppError("INVALID_INPUT");
+      return values[name] ?? "";
+    });
   for (const action of workflow.before) {
-    if (action.kind !== "fill") continue;
-    action.value = action.value.replace(
-      /\{\{([a-zA-Z][a-zA-Z0-9_]*)\}\}/gu,
-      (_match, name: string) => {
-        if (!Object.hasOwn(values, name)) throw new AppError("INVALID_INPUT");
-        return values[name] ?? "";
-      },
-    );
+    if (action.kind === "fill") action.value = substitute(action.value);
+    if (action.kind === "request") {
+      action.request = {
+        ...action.request,
+        url: substitute(action.request.url),
+        headers: Object.fromEntries(
+          Object.entries(action.request.headers).map(([key, value]) => [key, substitute(value)]),
+        ),
+        ...(action.request.body !== undefined && { body: substitute(action.request.body) }),
+      };
+    }
   }
   return collectionWorkflowSchema.parse(workflow);
 }
@@ -115,13 +131,55 @@ export async function collectPages(
   const workflow = resolveWorkflow(input.workflow, input.parameters);
   const browser = ctx.browser.automation;
   await ctx.step("navigate", () => ctx.browser.navigate(input.url, ctx.signal), input.url);
+  const captures: Record<string, string> = {};
+  /** Fills `{{response:name}}` placeholders with bodies captured so far. */
+  const substituteCaptures = (text: string): string =>
+    text.replace(/\{\{response:([a-zA-Z][a-zA-Z0-9_]*)\}\}/gu, (_match, name: string) => {
+      if (!Object.hasOwn(captures, name)) throw new AppError("INVALID_INPUT");
+      return captures[name] ?? "";
+    });
   for (const action of workflow.before) {
+    if (action.kind === "request") {
+      const spec = action.request;
+      const label = `request: ${spec.method} ${spec.url}`;
+      const run = async (): Promise<void> => {
+        if (!ctx.http) throw new AppError("INVALID_INPUT");
+        const response = await ctx.http.fetch(
+          {
+            method: spec.method,
+            url: substituteCaptures(spec.url),
+            headers: Object.fromEntries(
+              Object.entries(spec.headers).map(([key, value]) => [key, substituteCaptures(value)]),
+            ),
+            ...(spec.body !== undefined && { body: substituteCaptures(spec.body) }),
+          },
+          spec.timeoutMs,
+          spec.capture?.maxLength ?? 4096,
+          ctx.signal,
+        );
+        if (response.status !== spec.expectStatus) throw new AppError("REQUEST_FAILED");
+        if (spec.capture) captures[spec.capture.name] = response.body;
+      };
+      // `when` for a request is validated against the page, mirroring element actions.
+      if (action.when && !(await browser.exists(action.when.exists, ctx.signal))) {
+        ctx.skip("request", `${label} (missing: ${action.when.exists})`);
+        continue;
+      }
+      if (action.onError === "skip") await ctx.attempt("request", run, label);
+      else await ctx.step("request", run, label);
+      continue;
+    }
     const label = `${action.kind}: ${action.selector}`;
     if (action.when && !(await browser.exists(action.when.exists, ctx.signal))) {
       ctx.skip(action.kind, `${label} (missing: ${action.when.exists})`);
       continue;
     }
-    const act = () => browser.act(action, workflow.waitTimeoutMs, ctx.signal);
+    const act = async () => {
+      if (action.kind === "fill") {
+        action.value = substituteCaptures(action.value);
+      }
+      await browser.act(action, workflow.waitTimeoutMs, ctx.signal);
+    };
     // A best-effort action records its own failure as a skip instead of aborting the page.
     if (action.onError === "skip") await ctx.attempt(action.kind, act, label);
     else await ctx.step(action.kind, act, label);

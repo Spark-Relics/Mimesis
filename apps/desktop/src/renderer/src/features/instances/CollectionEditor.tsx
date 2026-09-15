@@ -3,6 +3,7 @@ import {
   collectionWorkflowSchema,
   type DetailTraversal,
   type Extraction,
+  type HttpRequestSpec,
   type WorkflowAction,
 } from "@clawler/contracts";
 import { useI18n } from "@clawler/i18n";
@@ -80,12 +81,71 @@ export function CollectionEditor({
             <li key={`action-${index}-${entry.kind}`}>
               <span className="action-number">{index + 1}</span>
               <strong>{t(stepKeys[entry.kind])}</strong>
-              <input
-                aria-label={t("flowSelector")}
-                value={entry.selector}
-                disabled={disabled}
-                onChange={(event) => action(index, { ...entry, selector: event.target.value })}
-              />
+              {entry.kind === "request" && (
+                <div className="request-fields">
+                  <select
+                    aria-label={t("flowRequestMethod")}
+                    value={entry.request.method}
+                    disabled={disabled}
+                    onChange={(event) =>
+                      action(index, {
+                        ...entry,
+                        request: {
+                          ...entry.request,
+                          method: event.target.value as HttpRequestSpec["method"],
+                        },
+                      })
+                    }
+                  >
+                    {(["GET", "POST", "PUT", "PATCH", "DELETE"] as const).map((method) => (
+                      <option key={method} value={method}>
+                        {method}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    aria-label={t("flowRequestUrl")}
+                    placeholder={t("flowRequestUrlPlaceholder")}
+                    value={entry.request.url}
+                    disabled={disabled}
+                    onChange={(event) =>
+                      action(index, {
+                        ...entry,
+                        request: { ...entry.request, url: event.target.value },
+                      })
+                    }
+                  />
+                  <input
+                    aria-label={t("flowRequestCapture")}
+                    placeholder={t("flowRequestCapturePlaceholder")}
+                    value={entry.request.capture?.name ?? ""}
+                    disabled={disabled}
+                    onChange={(event) => {
+                      // Empty means "do not capture"; the capture block is dropped.
+                      const name = event.target.value;
+                      if (!name) {
+                        action(index, {
+                          ...entry,
+                          request: { ...entry.request, capture: undefined },
+                        });
+                        return;
+                      }
+                      action(index, {
+                        ...entry,
+                        request: { ...entry.request, capture: { name, maxLength: 64000 } },
+                      });
+                    }}
+                  />
+                </div>
+              )}
+              {entry.kind !== "request" && (
+                <input
+                  aria-label={t("flowSelector")}
+                  value={entry.selector}
+                  disabled={disabled}
+                  onChange={(event) => action(index, { ...entry, selector: event.target.value })}
+                />
+              )}
               <input
                 aria-label={t("flowCondition")}
                 placeholder={t("flowConditionPlaceholder")}
@@ -156,7 +216,7 @@ export function CollectionEditor({
           ))}
         </ol>
         <div className="workflow-actions">
-          {(["click", "fill", "wait"] as const).map((kind) => (
+          {(["click", "fill", "wait", "request"] as const).map((kind) => (
             <Button
               key={kind}
               disabled={disabled || workflow.before.length >= 20}
@@ -164,6 +224,17 @@ export function CollectionEditor({
                 let entry: WorkflowAction = { kind: "click", selector: "" };
                 if (kind === "fill") entry = { kind, selector: "", value: "" };
                 if (kind === "wait") entry = { kind, selector: "" };
+                if (kind === "request")
+                  entry = {
+                    kind,
+                    request: {
+                      method: "GET",
+                      url: "",
+                      headers: {},
+                      timeoutMs: 10000,
+                      expectStatus: 200,
+                    },
+                  };
                 onChange({ ...workflow, before: [...workflow.before, entry] });
               }}
             >

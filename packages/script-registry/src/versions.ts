@@ -11,17 +11,38 @@ import {
 } from "@clawler/contracts";
 
 const placeholder = /\{\{([^{}]*)\}\}/gu;
+/** Captured response bodies are referenced as `{{response:name}}`, never as run parameters. */
+const responseRef = /^response:([a-zA-Z][a-zA-Z0-9_]{0,63})$/u;
 
-/** Parameter names referenced by a workflow, in first-use order. */
+/**
+ * Parameter names referenced by a workflow, in first-use order.
+ * `{{response:name}}` references resolve at runtime and are not inputs.
+ */
 export function parameterNames(workflow: CollectionWorkflow): string[] {
   const names: string[] = [];
   for (const action of workflow.before) {
     if (action.kind !== "fill") continue;
     for (const match of action.value.matchAll(placeholder)) {
       const name = match[1] ?? "";
+      if (responseRef.test(name)) continue;
       if (!/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/u.test(name)) throw new AppError("INVALID_INPUT");
       if (!names.includes(name)) names.push(name);
     }
+    // A response reference must name something a preceding request captures.
+    const captured = capturedNames(workflow, workflow.before.indexOf(action));
+    for (const match of action.value.matchAll(placeholder)) {
+      const ref = responseRef.exec(match[1] ?? "");
+      if (ref && !captured.has(ref[1] ?? "")) throw new AppError("INVALID_INPUT");
+    }
+  }
+  return names;
+}
+
+/** Capture names defined by request actions at or before `index` of `before`. */
+function capturedNames(workflow: CollectionWorkflow, index: number): Set<string> {
+  const names = new Set<string>();
+  for (const action of workflow.before.slice(0, index + 1)) {
+    if (action.kind === "request" && action.request.capture) names.add(action.request.capture.name);
   }
   return names;
 }
@@ -37,6 +58,16 @@ export function validateForPublish(input: unknown): CollectionWorkflow {
     if (stripped.includes("{{") || stripped.includes("}}")) throw new AppError("INVALID_INPUT");
   }
   if (workflow.pagination && workflow.pagination.maxPages < 2) throw new AppError("INVALID_INPUT");
+  for (const action of workflow.before) {
+    if (action.kind !== "request") continue;
+    // Duplicate capture names would silently overwrite earlier responses.
+    const names = new Set<string>();
+    for (const capture of [action.request.capture].flat()) {
+      if (!capture) continue;
+      if (names.has(capture.name)) throw new AppError("INVALID_INPUT");
+      names.add(capture.name);
+    }
+  }
   return workflow;
 }
 

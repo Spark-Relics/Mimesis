@@ -200,6 +200,8 @@ export class BrowserAutomation implements BrowserAutomationPort {
     signal: AbortSignal,
     scopeSelector?: string,
   ): Promise<void> {
+    // Only element actions reach the page; HTTP requests go through the HttpPort instead.
+    if (action.kind === "request") throw new AppError("INVALID_INPUT");
     const contents = this.contents();
     const deadline = Date.now() + timeoutMs;
     while (true) {

@@ -1,5 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { BrowserHost } from "@clawler/browser-host";
+import { BrowserHost, HttpHost } from "@clawler/browser-host";
 import {
   AppError,
   type AutomationInstance,
@@ -53,8 +53,9 @@ export class WorkspaceService {
   ) {
     this.state = state;
     this.host = new BrowserHost(window);
-    this.runner = new TaskRunner(this.host);
-    this.dryRunner = new TaskRunner(this.host, 60_000);
+    const http = new HttpHost();
+    this.runner = new TaskRunner(this.host, 30_000, http);
+    this.dryRunner = new TaskRunner(this.host, 60_000, http);
     const emitRun = (run: Run) => {
       if (!this.window.isDestroyed()) this.window.webContents.send(IPC.runChanged, run);
     };

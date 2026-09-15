@@ -23,6 +23,7 @@ export const stepKeys: Record<StepKind, MessageKey> = {
   click: "stepClick",
   wait: "stepWait",
   extract: "stepExtract",
+  request: "stepRequest",
 };
 export const errorKeys: Record<ErrorCode, MessageKey> = {
   INVALID_INPUT: "errorInvalidInput",
@@ -38,6 +39,7 @@ export const errorKeys: Record<ErrorCode, MessageKey> = {
   STORAGE_SPACE_LOW: "errorStorageSpace",
   NO_PUBLISHED_VERSION: "errorNoPublishedVersion",
   VERSION_CONFLICT: "errorVersionConflict",
+  REQUEST_FAILED: "errorRequestFailed",
   VERSION_LIMIT: "errorVersionLimit",
   INTERNAL: "errorInternal",
   DESKTOP_REQUIRED: "desktopRequired",

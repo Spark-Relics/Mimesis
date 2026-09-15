@@ -12,7 +12,10 @@ import type { BrowserPort } from "@clawler/script-sdk";
 import { type BrowserWindow, session, WebContentsView } from "electron";
 import { BrowserAutomation } from "./automation";
 import { demoPage, detailListPage, detailPages } from "./demo-page";
+import { HttpHost } from "./http";
 import { BrowserRecorder } from "./recorder";
+
+export { HttpHost };
 
 const inspectionExpression = `(() => ({
   title: document.title,

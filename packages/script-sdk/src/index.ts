@@ -32,9 +32,22 @@ export interface BrowserPort {
   inspect(signal: AbortSignal): Promise<DocumentSnapshot>;
 }
 
+/** HTTP request capability mediated by the host; scripts never import network modules. */
+export interface HttpPort {
+  /** `expectStatus`/size bounding happens at the caller; this only performs a bounded fetch. */
+  fetch(
+    request: { method: string; url: string; headers: Record<string, string>; body?: string },
+    timeoutMs: number,
+    maxBytes: number,
+    signal: AbortSignal,
+  ): Promise<{ status: number; body: string }>;
+}
+
 export interface ScriptContext {
   readonly signal: AbortSignal;
   readonly browser: BrowserPort;
+  /** Optional so pure-browser scripts and tests do not need a network implementation. */
+  readonly http?: HttpPort;
   step<T>(kind: StepKind, action: () => Promise<T>, detail?: string): Promise<T>;
   /**
    * Best-effort step: a recoverable failure is recorded as skipped and the run continues.
