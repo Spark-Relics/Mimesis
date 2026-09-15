@@ -9,7 +9,7 @@ import {
   workflowPlanSchema,
 } from "@clawler/contracts";
 import type { BrowserAutomationPort, ScriptContext, ScriptInput } from "@clawler/script-sdk";
-import { evaluateExpression } from "./expression.js";
+import { evaluateExpression, evaluateFilter } from "./expression.js";
 import { dedupeKey, fieldNames, traversalNames } from "./fields.js";
 import { parameterNames, validateForPublish } from "./versions.js";
 
@@ -108,6 +108,31 @@ async function pause(signal: AbortSignal): Promise<void> {
     }, 150);
     signal.addEventListener("abort", abort, { once: true });
   });
+}
+
+/** A configured record filter: falsy results drop the record before dedupe/budget. */
+function passesFilter(workflow: CollectionWorkflow, row: Record<string, string>): boolean {
+  if (!workflow.filter) return true;
+  return evaluateFilter(workflow.filter, row);
+}
+
+/** Shared admission gate for a candidate record: filter, dedupe, then record/byte budget. */
+function admitRecord(
+  workflow: CollectionWorkflow,
+  row: Record<string, string>,
+  records: Array<Record<string, string>>,
+  seen: Set<string>,
+  bytes: number,
+): { admitted: boolean; bytes: number; limit: boolean } {
+  if (!passesFilter(workflow, row)) return { admitted: false, bytes, limit: false };
+  const key = dedupeKey(row, workflow.dedupe);
+  if (seen.has(key)) return { admitted: false, bytes, limit: false };
+  const size = new TextEncoder().encode(JSON.stringify(row)).byteLength;
+  if (records.length >= workflow.maxRecords || bytes + size > 2_000_000)
+    return { admitted: false, bytes, limit: true };
+  records.push(row);
+  seen.add(key);
+  return { admitted: true, bytes: bytes + size, limit: false };
 }
 
 /** Trusted interpreter for a finite, schema-validated browser collection recipe. */
@@ -213,17 +238,13 @@ export async function collectPages(
     pages++;
     let added = 0;
     for (const row of rows) {
-      const key = dedupeKey(row, workflow.dedupe);
-      if (seen.has(key)) continue;
-      const size = new TextEncoder().encode(JSON.stringify(row)).byteLength;
-      if (records.length >= workflow.maxRecords || bytes + size > 2_000_000) {
+      const result = admitRecord(workflow, row, records, seen, bytes);
+      bytes = result.bytes;
+      if (result.limit) {
         stopReason = "record-limit";
         break;
       }
-      records.push(row);
-      seen.add(key);
-      bytes += size;
-      added++;
+      if (result.admitted) added++;
     }
     if (stopReason === "record-limit") break;
     // Detail traversal runs once per list page, before pagination advances.
@@ -340,16 +361,12 @@ async function traverseDetails(
         if (child) {
           // Nested rows must land in the dataset first so child merges have targets.
           for (const row of nested) {
-            const rowKey = dedupeKey(row, workflow.dedupe);
-            if (budget.seen.has(rowKey)) continue;
-            const size = new TextEncoder().encode(JSON.stringify(row)).byteLength;
-            if (records.length >= workflow.maxRecords || budget.bytes + size > 2_000_000) {
+            const result = admitRecord(workflow, row, records, budget.seen, budget.bytes);
+            budget.bytes = result.bytes;
+            if (result.limit) {
               budget.stopReason = "record-limit";
               break;
             }
-            records.push(row);
-            budget.seen.add(rowKey);
-            budget.bytes += size;
           }
           if (budget.stopReason !== "record-limit") {
             await traverseDetails(
@@ -363,16 +380,12 @@ async function traverseDetails(
           }
         } else {
           for (const row of nested) {
-            const rowKey = dedupeKey(row, workflow.dedupe);
-            const size = new TextEncoder().encode(JSON.stringify(row)).byteLength;
-            if (records.length >= workflow.maxRecords || budget.bytes + size > 2_000_000) {
+            const result = admitRecord(workflow, row, records, budget.seen, budget.bytes);
+            budget.bytes = result.bytes;
+            if (result.limit) {
               budget.stopReason = "record-limit";
               break;
             }
-            if (budget.seen.has(rowKey)) continue;
-            records.push(row);
-            budget.seen.add(rowKey);
-            budget.bytes += size;
           }
         }
       }

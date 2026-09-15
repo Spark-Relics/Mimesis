@@ -327,8 +327,12 @@ function toNumber(value: ExpressionValue): number {
 
 const parsedCache = new Map<string, Node>();
 
-/** Parses (with a small cache) and evaluates a restricted expression against one record. */
 export function evaluateExpression(source: string, record: Record<string, string>): string {
+  return toText(evaluatePredicateValue(source, record));
+}
+
+/** Parses (with a small cache) and evaluates a restricted expression to its raw value. */
+function evaluatePredicateValue(source: string, record: Record<string, string>): ExpressionValue {
   if (source.length > MAX_SOURCE_LENGTH) throw new AppError("INVALID_INPUT");
   let root = parsedCache.get(source);
   if (!root) {
@@ -336,5 +340,31 @@ export function evaluateExpression(source: string, record: Record<string, string
     if (parsedCache.size > 500) parsedCache.clear();
     parsedCache.set(source, root);
   }
-  return toText(evaluate(root, record));
+  return evaluate(root, record);
+}
+
+/** Record filter predicate: throws on parse errors, coerces the result to a boolean. */
+export function evaluateFilter(source: string, record: Record<string, string>): boolean {
+  return toBoolean(evaluatePredicateValue(source, record));
+}
+
+/** Field names referenced by a filter; used by publish validation. Invalid source throws. */
+export function filterFieldNames(source: string): string[] {
+  const names = new Set<string>();
+  const walk = (node: Node): void => {
+    if (node.kind === "field") names.add(node.name);
+    if (node.kind === "unary") walk(node.operand);
+    if (node.kind === "binary") {
+      walk(node.left);
+      walk(node.right);
+    }
+    if (node.kind === "call") for (const argument of node.args) walk(argument);
+  };
+  walk(parseFilter(source));
+  return [...names];
+}
+
+function parseFilter(source: string): Node {
+  if (source.length > MAX_SOURCE_LENGTH) throw new AppError("INVALID_INPUT");
+  return parseExpression(tokenize(source));
 }

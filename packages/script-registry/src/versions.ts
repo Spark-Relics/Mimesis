@@ -9,6 +9,7 @@ import {
   workflowVersionExportSchema,
   workflowVersionSchema,
 } from "@clawler/contracts";
+import { filterFieldNames } from "./expression.js";
 import { outputFieldNames } from "./fields.js";
 
 const placeholder = /\{\{([^{}]*)\}\}/gu;
@@ -65,6 +66,12 @@ export function validateForPublish(input: unknown): CollectionWorkflow {
     const names = outputFieldNames(workflow);
     if (new Set(dedupe).size !== dedupe.length) throw new AppError("INVALID_INPUT");
     for (const name of dedupe) if (!names.has(name)) throw new AppError("INVALID_INPUT");
+  }
+  if (workflow.filter) {
+    // A filter referencing unknown fields would silently drop nothing or everything.
+    const names = outputFieldNames(workflow);
+    for (const name of filterFieldNames(workflow.filter))
+      if (!names.has(name)) throw new AppError("INVALID_INPUT");
   }
   for (const action of workflow.before) {
     if (action.kind !== "request") continue;

@@ -186,6 +186,12 @@ export const collectionWorkflowSchema = z.strictObject({
     .array(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/u))
     .max(8)
     .default([]),
+  /**
+   * Optional record filter: a restricted expression evaluated against each
+   * record before it enters the dataset; falsy results drop the record.
+   * Referenced field names must be output fields (publish validation).
+   */
+  filter: z.string().max(1000).optional(),
 });
 export type CollectionWorkflow = z.infer<typeof collectionWorkflowSchema>;
 /** Fixed input/output schema deterministically derived from an immutable workflow. */

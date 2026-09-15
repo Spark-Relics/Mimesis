@@ -375,6 +375,24 @@ export function CollectionEditor({
             />
           </label>
         </div>
+        <div className="workflow-form-row">
+          <label className="workflow-field">
+            {t("flowFilter")}
+            <input
+              value={workflow.filter ?? ""}
+              disabled={disabled}
+              placeholder={t("flowFilter")}
+              onChange={(event) => {
+                const value = event.target.value.trim();
+                const next = { ...workflow };
+                if (value === "") delete next.filter;
+                else next.filter = event.target.value;
+                onChange(next);
+              }}
+            />
+            <span className="workflow-hint">{t("flowFilterHint")}</span>
+          </label>
+        </div>
       </section>
       <section className="workflow-section">
         <div className="workflow-section-title">

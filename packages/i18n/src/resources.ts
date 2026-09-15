@@ -97,6 +97,9 @@ export const zhCN = {
   flowTimeout: "每步等待上限（毫秒）",
   flowMaxRecords: "最多记录数",
   flowDedupe: "去重字段（逗号分隔，留空按整行去重）",
+  flowFilter: "记录过滤表达式（可选）",
+  flowFilterHint:
+    "使用 {字段名}、白名单函数与比较/逻辑运算符；结果为假（空串/false/0）的记录被丢弃。",
   flowSource: "流程脚本（JSON）",
   flowSourceHint: "这是可保存并执行的声明式流程。修改后点击应用脚本；当前不执行任意 JavaScript。",
   flowInvalidScript: "流程配置无效，请检查字段与上限",
@@ -467,6 +470,9 @@ export const enUS: Record<MessageKey, string> = {
   flowTimeout: "Step wait limit (ms)",
   flowMaxRecords: "Maximum records",
   flowDedupe: "Dedupe fields (comma separated; empty = whole record)",
+  flowFilter: "Record filter expression (optional)",
+  flowFilterHint:
+    "Use {field}, whitelist functions and comparison/logical operators; records with a falsy result (empty string/false/0) are dropped.",
   flowSource: "Workflow script (JSON)",
   flowSourceHint:
     "A saved, executable declarative workflow. Apply edits before saving; arbitrary JavaScript is not executed.",

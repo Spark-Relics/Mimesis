@@ -337,6 +337,31 @@ describe("reusable collection interpreter", () => {
     );
   });
 
+  it("drops records whose filter expression evaluates falsy", async () => {
+    vi.useFakeTimers();
+    const pages: Array<Array<Record<string, string>>> = [
+      [{ name: "keep" }, { name: "" }, { name: "other" }],
+    ];
+    const { ctx } = fixture(pages);
+    const workflow: CollectionWorkflow = { ...recipe, filter: '{name} != ""' };
+    const resultPromise = collectPages(ctx, {
+      url: "https://example.com",
+      workflow,
+      parameters: { query: "hello" },
+    });
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+    expect(result.records).toEqual([{ name: "keep" }, { name: "other" }]);
+  });
+
+  it("rejects filters referencing unknown fields at publish validation", () => {
+    expect(() => validateForPublish({ ...recipe, filter: '{name} != ""' })).not.toThrow();
+    expect(() => validateForPublish({ ...recipe, filter: '{ghost} != ""' })).toThrow(
+      "INVALID_INPUT",
+    );
+    expect(() => validateForPublish({ ...recipe, filter: "{name" })).toThrow("INVALID_INPUT");
+  });
+
   it("runs only the conditional actions whose element is present and records the rest as skipped", async () => {
     const { ctx, automation, steps } = fixture([[{ name: "A" }]], false, ["#search"]);
     const workflow: CollectionWorkflow = {
