@@ -68,6 +68,13 @@ const bridge: DesktopBridge = {
     automationInstanceSchema.parse(
       await request({ method: "versions.rollback", instanceId, versionId }),
     ),
+  exportVersion: async (versionId) =>
+    z
+      .string()
+      .nullable()
+      .parse(await request({ method: "versions.export", versionId })),
+  importVersion: async (instanceId) =>
+    workflowVersionSchema.parse(await request({ method: "versions.import", instanceId })),
   setBrowserBounds: async (bounds) => {
     await request({ method: "browser.bounds", bounds });
   },

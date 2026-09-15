@@ -200,6 +200,18 @@ export const workflowVersionSchema = z.object({
 });
 export type WorkflowVersion = z.infer<typeof workflowVersionSchema>;
 
+/** Portable single-version file. The digest lets importers reject tampered content up front. */
+export const workflowVersionExportSchema = z.strictObject({
+  kind: z.literal("mimesis-version"),
+  exportVersion: z.literal(1),
+  digest: z.string().regex(/^[0-9a-f]{64}$/u),
+  targetUrl: z.string().min(1).max(4096),
+  workflow: collectionWorkflowSchema,
+  note: z.string().trim().max(200),
+  exportedAt: z.string().datetime(),
+});
+export type WorkflowVersionExport = z.infer<typeof workflowVersionExportSchema>;
+
 export const instanceUpdateSchema = automationInstanceSchema.pick({
   name: true,
   profileId: true,
@@ -399,6 +411,8 @@ export const requestSchema = z.discriminatedUnion("method", [
     instanceId: z.string().uuid(),
     versionId: z.string().uuid(),
   }),
+  z.object({ method: z.literal("versions.export"), versionId: z.string().uuid() }),
+  z.object({ method: z.literal("versions.import"), instanceId: z.string().uuid() }),
 
   z.object({ method: z.literal("browser.bounds"), bounds: boundsSchema }),
   z.object({ method: z.literal("browser.navigate"), url: z.string().min(1).max(4096) }),
@@ -435,6 +449,8 @@ export interface DesktopBridge {
   ): Promise<AutomationInstance>;
   publishWorkflow(instanceId: string, note?: string): Promise<WorkflowVersion>;
   rollbackWorkflow(instanceId: string, versionId: string): Promise<AutomationInstance>;
+  exportVersion(versionId: string): Promise<string | null>;
+  importVersion(instanceId: string): Promise<WorkflowVersion>;
 
   setBrowserBounds(bounds: BrowserBounds): Promise<void>;
   navigate(url: string): Promise<void>;

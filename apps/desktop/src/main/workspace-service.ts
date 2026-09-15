@@ -1,3 +1,4 @@
+import { readFile, writeFile } from "node:fs/promises";
 import { BrowserHost } from "@clawler/browser-host";
 import {
   AppError,
@@ -16,6 +17,8 @@ import {
 import {
   bindingOf,
   buildVersion,
+  exportVersionFile,
+  importVersionFile,
   resolveWorkflow,
   ScriptRegistry,
   verifyVersion,
@@ -24,6 +27,10 @@ import {
 import type { StoredState, WorkspaceRepository } from "@clawler/storage";
 import { TaskRunner } from "@clawler/workflow-core";
 import type { BrowserWindow } from "electron";
+import { dialog } from "electron";
+
+/** Cap for imported version files: schema bounds each part, this bounds the file overall. */
+const EXPORT_FILE_MAX_BYTES = 512 * 1024;
 
 export class WorkspaceService {
   private readonly registry = new ScriptRegistry();
@@ -405,6 +412,52 @@ export class WorkspaceService {
           }),
         });
         return instance;
+      }
+      case "versions.export": {
+        this.assertIdle();
+        const version = this.state.versions.find((entry) => entry.id === request.versionId);
+        if (!version) throw new AppError("NOT_FOUND");
+        if (!verifyVersion(version)) throw new AppError("VERSION_CONFLICT");
+        const selected = await dialog.showSaveDialog(this.window, {
+          title: "Mimesis",
+          defaultPath: `version-v${version.version}.mimesis.json`,
+          filters: [{ name: "Mimesis version", extensions: ["json"] }],
+        });
+        if (selected.canceled || !selected.filePath) return null;
+        await writeFile(selected.filePath, exportVersionFile(version, new Date().toISOString()), {
+          flag: "wx",
+        });
+        return selected.filePath;
+      }
+      case "versions.import": {
+        this.assertIdle();
+        if (this.host.recorder.active) throw new AppError("BUSY");
+        const current = this.state.instances.find((entry) => entry.id === request.instanceId);
+        if (!current) throw new AppError("NOT_FOUND");
+        const selected = await dialog.showOpenDialog(this.window, {
+          title: "Mimesis",
+          properties: ["openFile"],
+          filters: [{ name: "Mimesis version", extensions: ["json"] }],
+        });
+        if (selected.canceled || !selected.filePaths[0]) throw new AppError("CANCELLED");
+        const content = await readFile(selected.filePaths[0], { encoding: "utf8" }).catch(() => {
+          throw new AppError("INVALID_INPUT");
+        });
+        if (Buffer.byteLength(content, "utf8") > EXPORT_FILE_MAX_BYTES)
+          throw new AppError("INVALID_INPUT");
+        const existing = this.state.versions.filter((entry) => entry.instanceId === current.id);
+        const candidate = importVersionFile(content, {
+          instanceId: current.id,
+          existing,
+          publishedAt: new Date().toISOString(),
+        });
+        // Identical content already published keeps its version number, same as native publishing.
+        const known = existing.find((entry) => entry.digest === candidate.digest);
+        if (!known && existing.length >= 500) throw new AppError("VERSION_LIMIT");
+        const version = known ?? candidate;
+        if (!known)
+          await this.updateState({ ...this.state, versions: [...this.state.versions, version] });
+        return version;
       }
       case "browser.bounds":
         this.host.setBounds(request.bounds);

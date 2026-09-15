@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   bindingOf,
   buildVersion,
+  exportVersionFile,
+  importVersionFile,
   nextVersionNumber,
   parameterNames,
   validateForPublish,
@@ -93,6 +95,69 @@ describe("workflowDigest", () => {
     expect(workflowDigest("https://example.com/other", recipe)).not.toBe(base);
     const changed = { ...recipe, maxRecords: 11 };
     expect(workflowDigest("https://example.com/", changed)).not.toBe(base);
+  });
+});
+
+describe("version export/import", () => {
+  it("round-trips a version through a portable file", () => {
+    const original = version({ note: "export me" });
+    const file = exportVersionFile(original, "2026-09-15T00:00:00.000Z");
+    const imported = importVersionFile(file, {
+      instanceId: crypto.randomUUID(),
+      existing: [],
+      publishedAt: "2026-09-15T00:01:00.000Z",
+    });
+    expect(imported.version).toBe(1);
+    expect(imported.targetUrl).toBe(original.targetUrl);
+    expect(imported.digest).toBe(original.digest);
+    expect(imported.workflow).toEqual(original.workflow);
+    expect(imported.note).toBe("export me");
+    expect(verifyVersion(imported)).toBe(true);
+  });
+
+  it("numbers an import after existing versions", () => {
+    const original = version();
+    const first = buildVersion({
+      instanceId: "00000000-0000-4000-8000-000000000001",
+      targetUrl: "https://example.com/",
+      workflow: recipe,
+      note: "",
+      publishedAt: "2026-09-15T00:00:00.000Z",
+      existing: [],
+    });
+    const imported = importVersionFile(exportVersionFile(original, "2026-09-15T00:00:00.000Z"), {
+      instanceId: first.instanceId,
+      existing: [first],
+      publishedAt: "2026-09-15T00:02:00.000Z",
+    });
+    expect(imported.instanceId).toBe(first.instanceId);
+    expect(imported.version).toBe(2);
+  });
+
+  it("refuses a tampered digest", () => {
+    const file = exportVersionFile(version(), "2026-09-15T00:00:00.000Z");
+    const parsed = JSON.parse(file) as { workflow: CollectionWorkflow };
+    parsed.workflow = { ...parsed.workflow, maxRecords: 999 };
+    expect(() =>
+      importVersionFile(JSON.stringify(parsed), {
+        instanceId: crypto.randomUUID(),
+        existing: [],
+        publishedAt: "2026-09-15T00:00:00.000Z",
+      }),
+    ).toThrow("VERSION_CONFLICT");
+  });
+
+  it("refuses malformed files and refuses to export a corrupted version", () => {
+    expect(() =>
+      importVersionFile("not json", {
+        instanceId: crypto.randomUUID(),
+        existing: [],
+        publishedAt: "2026-09-15T00:00:00.000Z",
+      }),
+    ).toThrow("INVALID_INPUT");
+    expect(() =>
+      exportVersionFile(version({ digest: "0".repeat(64) }), "2026-09-15T00:00:00.000Z"),
+    ).toThrow("VERSION_CONFLICT");
   });
 });
 

@@ -7,6 +7,8 @@ export { resolveWorkflow } from "./collection";
 export {
   bindingOf,
   buildVersion,
+  exportVersionFile,
+  importVersionFile,
   nextVersionNumber,
   parameterNames,
   validateForPublish,

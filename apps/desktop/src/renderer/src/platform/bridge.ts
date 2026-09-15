@@ -55,6 +55,8 @@ function createPreviewBridge(): DesktopBridge {
     saveWorkflow: async () => desktopRequired(),
     publishWorkflow: async () => desktopRequired(),
     rollbackWorkflow: async () => desktopRequired(),
+    exportVersion: async () => desktopRequired(),
+    importVersion: async () => desktopRequired(),
     navigate: async () => desktopRequired(),
     startRecording: async () => desktopRequired(),
     stopRecording: async () => desktopRequired(),

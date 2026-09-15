@@ -139,6 +139,14 @@ export const zhCN = {
   versionSwitchNote:
     "切换版本只改变后续运行的执行版本，当前草稿与目标地址保持不变；已开始的任务继续使用受理时的版本。",
   versionLimited: "版本数量已达上限 500，历史版本不会被自动清理。",
+  versionExport: "导出",
+  versionExportDone: "已导出版本文件到 {{path}}。",
+  versionExportCancelled: "已取消导出。",
+  versionImport: "导入版本文件",
+  versionImportHint:
+    "导入会校验文件摘要，通过后作为新版本发布到本任务；相同内容会复用原版本号。导入不会改变当前运行绑定。",
+  versionImported: "已从文件导入 {{version}} 版本，可在版本列表切换运行绑定。",
+  versionImportInvalid: "版本文件无效或已被篡改。",
   flowApi: "从你的项目调用",
   flowApiHint:
     "启用本机网关后，携带 Bearer Token 向 POST /v1/jobs 提交以下 JSON，再轮询任务并下载结果。默认地址 http://127.0.0.1:17840。",
@@ -496,6 +504,14 @@ export const enUS: Record<MessageKey, string> = {
     "Switching changes what new runs execute. The draft and its target URL are kept as they are, and jobs already accepted keep their own version.",
   versionLimited:
     "The 500-version limit is reached. Published history is never pruned automatically.",
+  versionExport: "Export",
+  versionExportDone: "Version file saved to {{path}}.",
+  versionExportCancelled: "Export cancelled.",
+  versionImport: "Import version file",
+  versionImportHint:
+    "Import verifies the file digest, then publishes it as a new version of this task. Identical content reuses its version number, and the current run binding is unchanged.",
+  versionImported: "Imported {{version}}. Switch the run binding from the version list.",
+  versionImportInvalid: "The version file is invalid or has been tampered with.",
   flowApi: "Call from your project",
   flowApiHint:
     "Enable the local gateway, then POST this JSON to /v1/jobs with your Bearer token. Poll the job and download results. Default address: http://127.0.0.1:17840.",

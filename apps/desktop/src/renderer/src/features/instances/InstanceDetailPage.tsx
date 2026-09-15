@@ -201,6 +201,23 @@ export function InstanceDetailPage({
       setMessage(t("versionSwitched", { version: versionName(version) }));
     });
   }
+  async function exportCurrent(versionId: string) {
+    await perform(async () => {
+      const path = await bridge.exportVersion(versionId);
+      if (!path) {
+        setMessage(t("versionExportCancelled"));
+        return;
+      }
+      setMessage(t("versionExportDone", { path }));
+    });
+  }
+  async function importFromFile() {
+    await perform(async () => {
+      const version = await bridge.importVersion(instance.id);
+      await onRefresh();
+      setMessage(t("versionImported", { version: versionName(version.version) }));
+    });
+  }
   function useLastClick() {
     const last = workflow.before.at(-1);
     if (last?.kind !== "click") return;
@@ -467,10 +484,23 @@ export function InstanceDetailPage({
                         {t("versionSwitch", { version: versionName(version.version) })}
                       </Button>
                     )}
+                    <Button
+                      disabled={disabled}
+                      aria-label={t("versionExport")}
+                      onClick={() => void exportCurrent(version.id)}
+                    >
+                      {t("versionExport")}
+                    </Button>
                   </li>
                 ))}
               </ul>
               <p className="workflow-muted">{t("versionSwitchNote")}</p>
+              <div className="workflow-actions">
+                <Button disabled={disabled} onClick={() => void importFromFile()}>
+                  {t("versionImport")}
+                </Button>
+              </div>
+              <p className="workflow-muted">{t("versionImportHint")}</p>
             </section>
           </div>
         )}

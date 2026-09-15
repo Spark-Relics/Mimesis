@@ -5,6 +5,8 @@ import {
   collectionWorkflowSchema,
   type VersionBinding,
   type WorkflowVersion,
+  type WorkflowVersionExport,
+  workflowVersionExportSchema,
   workflowVersionSchema,
 } from "@clawler/contracts";
 
@@ -107,4 +109,46 @@ export function bindingOf(version: WorkflowVersion): VersionBinding {
     targetUrl: version.targetUrl,
     workflow: version.workflow,
   };
+}
+
+/** Serialize one version into a portable, self-verifying file body. */
+export function exportVersionFile(version: WorkflowVersion, exportedAt: string): string {
+  if (!verifyVersion(version)) throw new AppError("VERSION_CONFLICT");
+  const file: WorkflowVersionExport = {
+    kind: "mimesis-version",
+    exportVersion: 1,
+    digest: version.digest,
+    targetUrl: version.targetUrl,
+    workflow: version.workflow,
+    note: version.note,
+    exportedAt,
+  };
+  return `${JSON.stringify(file, null, 2)}\n`;
+}
+
+/**
+ * Import a portable version file into an instance: the file's digest must match its own content,
+ * then the content is published as a fresh version number under the target instance.
+ */
+export function importVersionFile(
+  content: string,
+  input: { instanceId: string; existing: readonly WorkflowVersion[]; publishedAt: string },
+): WorkflowVersion {
+  let file: WorkflowVersionExport;
+  try {
+    file = workflowVersionExportSchema.parse(JSON.parse(content));
+  } catch {
+    throw new AppError("INVALID_INPUT");
+  }
+  if (file.digest !== workflowDigest(file.targetUrl, file.workflow))
+    throw new AppError("VERSION_CONFLICT");
+  const imported = buildVersion({
+    instanceId: input.instanceId,
+    targetUrl: file.targetUrl,
+    workflow: file.workflow,
+    note: file.note,
+    publishedAt: input.publishedAt,
+    existing: input.existing,
+  });
+  return imported;
 }
