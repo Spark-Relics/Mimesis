@@ -11,7 +11,7 @@ import {
 } from "@clawler/contracts";
 import type { BrowserAutomationPort, ScriptContext, ScriptInput } from "@clawler/script-sdk";
 import { evaluateExpression, evaluateFilter } from "./expression.js";
-import { dedupeKey, fieldNames, sourceFieldNames, traversalNames } from "./fields.js";
+import { dedupeKey, mappedOutputNames, mappingTarget } from "./fields.js";
 import { parameterNames, validateForPublish } from "./versions.js";
 
 /** One extracted record; field values become numbers/booleans only when a field declares a type. */
@@ -136,9 +136,7 @@ export function dryRunWorkflow(input: CollectionWorkflow): CollectionWorkflow {
 /** Fixed input/output contract derived from the immutable workflow content. */
 export function planWorkflow(input: CollectionWorkflow): WorkflowPlan {
   const workflow = validateForPublish(input);
-  let detailFields: string[] = [];
-  if (workflow.detail) detailFields = traversalNames(workflow.detail);
-  const output = [...fieldNames(workflow.extract), ...detailFields, ...sourceFieldNames(workflow)];
+  const output = mappedOutputNames(workflow);
   if (new Set(output).size !== output.length) throw new AppError("INVALID_INPUT");
   let maxPages = 1;
   if (workflow.pagination) maxPages = workflow.pagination.maxPages;
@@ -420,9 +418,19 @@ export async function collectPages(
     await pause(ctx.signal);
   }
   const document = await ctx.step("inspect", () => ctx.browser.inspect(ctx.signal));
+  // Output mapping applies last, so filter/dedupe/watermark stay expressed in source names.
+  const mapping = mappingTarget(workflow);
+  let delivered = records;
+  if (mapping.size) {
+    delivered = records.map((row) => {
+      const next: FieldRow = {};
+      for (const [key, value] of Object.entries(row)) next[mapping.get(key) ?? key] = value;
+      return next;
+    });
+  }
   return {
     ...document,
-    records,
+    records: delivered,
     collection: {
       pages,
       stopReason,

@@ -594,6 +594,72 @@ describe("reusable collection interpreter", () => {
     );
   });
 
+  it("renames delivered fields via mapping while dedupe keeps using source names", async () => {
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [],
+      dedupe: ["name"],
+      mapping: [{ from: "name", to: "title" }],
+    };
+    const { ctx } = fixture([[{ name: "A" }], [{ name: "A" }]]);
+    const result = await collectPages(ctx, { url: "https://example.com/list", workflow });
+    // Source-name dedupe drops the second page's duplicate, and delivery renames the key.
+    expect(result.records).toEqual([{ title: "A" }]);
+    expect(planWorkflow(workflow).output).toEqual(["title"]);
+  });
+
+  it("accepts mapping to real output fields and rejects unknown, duplicate or colliding targets", () => {
+    const twoFields: CollectionWorkflow = {
+      ...recipe,
+      extract: {
+        items: ".item",
+        fields: [
+          { name: "name", selector: ".name", attribute: "text", required: true },
+          { name: "author", selector: ".author", attribute: "text", required: false },
+        ],
+      },
+    };
+    expect(
+      validateForPublish({ ...recipe, mapping: [{ from: "name", to: "title" }] }).mapping,
+    ).toEqual([{ from: "name", to: "title" }]);
+    // Unknown source names would silently drop a field.
+    expect(() => validateForPublish({ ...recipe, mapping: [{ from: "ghost", to: "x" }] })).toThrow(
+      "INVALID_INPUT",
+    );
+    // Duplicate `from` and duplicate `to` are both ambiguous.
+    expect(() =>
+      validateForPublish({
+        ...twoFields,
+        mapping: [
+          { from: "name", to: "x" },
+          { from: "name", to: "y" },
+        ],
+      }),
+    ).toThrow("INVALID_INPUT");
+    expect(() =>
+      validateForPublish({
+        ...twoFields,
+        mapping: [
+          { from: "name", to: "x" },
+          { from: "author", to: "x" },
+        ],
+      }),
+    ).toThrow("INVALID_INPUT");
+    // Renaming onto an unmapped sibling field would collide in the delivered output.
+    expect(() =>
+      validateForPublish({ ...twoFields, mapping: [{ from: "name", to: "author" }] }),
+    ).toThrow("INVALID_INPUT");
+  });
+
+  it("changes the published digest only when a mapping is configured", () => {
+    expect(
+      workflowDigest("https://example.com", {
+        ...recipe,
+        mapping: [{ from: "name", to: "title" }],
+      }),
+    ).not.toBe(workflowDigest("https://example.com", recipe));
+  });
+
   it("aborts a page wait without subsequent actions or inspection", async () => {
     vi.useFakeTimers();
     const { ctx, controller, automation } = fixture([[]]);

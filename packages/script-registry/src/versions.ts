@@ -10,7 +10,13 @@ import {
   workflowVersionSchema,
 } from "@clawler/contracts";
 import { filterFieldNames } from "./expression.js";
-import { fieldNames, outputFieldNames, sourceFieldNames, traversalNames } from "./fields.js";
+import {
+  fieldNames,
+  mappedOutputNames,
+  outputFieldNames,
+  sourceFieldNames,
+  traversalNames,
+} from "./fields.js";
 
 const placeholder = /\{\{([^{}]*)\}\}/gu;
 /** Captured response bodies are referenced as `{{response:name}}`, never as run parameters. */
@@ -81,6 +87,17 @@ export function validateForPublish(input: unknown): CollectionWorkflow {
     const extraction = new Set(fieldNames(workflow.extract));
     if (workflow.detail) for (const name of traversalNames(workflow.detail)) extraction.add(name);
     for (const name of sourceNames) if (extraction.has(name)) throw new AppError("INVALID_INPUT");
+  }
+  if (workflow.mapping?.length) {
+    // Every source name must exist; renames must yield a unique, collision-free output.
+    const names = outputFieldNames(workflow);
+    const from = new Set<string>();
+    for (const entry of workflow.mapping) {
+      if (!names.has(entry.from) || from.has(entry.from)) throw new AppError("INVALID_INPUT");
+      from.add(entry.from);
+    }
+    const mapped = mappedOutputNames(workflow);
+    if (new Set(mapped).size !== mapped.length) throw new AppError("INVALID_INPUT");
   }
   for (const action of workflow.before) {
     if (action.kind !== "request") continue;

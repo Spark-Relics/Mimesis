@@ -75,6 +75,21 @@ export function CollectionEditor({
     else delete result.source;
     onChange(result);
   }
+  function updateMapping(index: number, key: "from" | "to", value: string) {
+    setMapping(
+      (workflow.mapping ?? []).map((item, at) => {
+        if (at === index) return { ...item, [key]: value };
+        return item;
+      }),
+    );
+  }
+  function setMapping(entries: NonNullable<CollectionWorkflow["mapping"]>) {
+    const result = { ...workflow };
+    // An empty list means "no mapping", so the key is dropped to keep the digest unchanged.
+    if (entries.length) result.mapping = entries;
+    else delete result.mapping;
+    onChange(result);
+  }
   return (
     <div className="collection-editor">
       <section className="workflow-section">
@@ -456,6 +471,48 @@ export function CollectionEditor({
           </label>
         </div>
         <p className="workflow-hint">{t("flowSourceInfoHint")}</p>
+        <p className="workflow-hint">{t("flowMappingInfo")}</p>
+        {(workflow.mapping ?? []).map((entry, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: mapping rows are controlled and have no stable identity in the executable schema.
+          <div className="workflow-form-row" key={`mapping-${index}`}>
+            <label className="workflow-field">
+              {t("flowMappingFrom")}
+              <input
+                value={entry.from}
+                disabled={disabled}
+                placeholder={t("flowMappingFromPlaceholder")}
+                onChange={(event) => updateMapping(index, "from", event.target.value)}
+              />
+            </label>
+            <label className="workflow-field">
+              {t("flowMappingTo")}
+              <input
+                value={entry.to}
+                disabled={disabled}
+                placeholder={t("flowMappingToPlaceholder")}
+                onChange={(event) => updateMapping(index, "to", event.target.value)}
+              />
+            </label>
+            <Button
+              tone="ghost"
+              aria-label={t("flowRemove")}
+              disabled={disabled}
+              onClick={() =>
+                setMapping((workflow.mapping ?? []).filter((_entry, at) => at !== index))
+              }
+            >
+              <Trash2 size={14} />
+            </Button>
+          </div>
+        ))}
+        <Button
+          disabled={disabled || (workflow.mapping?.length ?? 0) >= 64}
+          onClick={() => setMapping([...(workflow.mapping ?? []), { from: "", to: "" }])}
+        >
+          <Plus size={13} />
+          {t("flowMappingAdd")}
+        </Button>
+        <p className="workflow-hint">{t("flowMappingInfoHint")}</p>
       </section>
       <section className="workflow-section">
         <div className="workflow-section-title">

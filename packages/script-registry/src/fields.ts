@@ -23,12 +23,30 @@ export function sourceFieldNames(workflow: CollectionWorkflow): string[] {
   return names;
 }
 
+/** Ordered output field names: list fields, then detail traversal fields, then provenance. */
+export function orderedFieldNames(workflow: CollectionWorkflow): string[] {
+  const names = fieldNames(workflow.extract);
+  if (workflow.detail) names.push(...traversalNames(workflow.detail));
+  names.push(...sourceFieldNames(workflow));
+  return names;
+}
+
 /** All output field names of a workflow: list fields, then detail traversal fields, then provenance. */
 export function outputFieldNames(workflow: CollectionWorkflow): Set<string> {
-  const names = new Set(fieldNames(workflow.extract));
-  if (workflow.detail) for (const name of traversalNames(workflow.detail)) names.add(name);
-  for (const name of sourceFieldNames(workflow)) names.add(name);
-  return names;
+  return new Set(orderedFieldNames(workflow));
+}
+
+/** Configured output renames keyed by source name; later duplicates win (validation rejects them). */
+export function mappingTarget(workflow: CollectionWorkflow): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const entry of workflow.mapping ?? []) map.set(entry.from, entry.to);
+  return map;
+}
+
+/** Delivered output order: source output names with `mapping` renames applied in place. */
+export function mappedOutputNames(workflow: CollectionWorkflow): string[] {
+  const map = mappingTarget(workflow);
+  return orderedFieldNames(workflow).map((name) => map.get(name) ?? name);
 }
 
 /**

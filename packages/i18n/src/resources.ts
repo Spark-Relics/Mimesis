@@ -120,6 +120,14 @@ export const zhCN = {
   flowSourceOrigin: "来源类型（sourceOrigin）",
   flowSourceInfoHint:
     "启用后每条记录附带来源字段：来源网址、页码与来源类型（list/nested）。保留字段名不可与提取字段重复。",
+  flowMappingInfo: "输出字段映射（可选）",
+  flowMappingFrom: "源字段",
+  flowMappingTo: "输出字段名",
+  flowMappingFromPlaceholder: "提取/来源字段名",
+  flowMappingToPlaceholder: "交付字段名",
+  flowMappingAdd: "添加字段映射",
+  flowMappingInfoHint:
+    "在记录交付前重命名输出字段。源字段必须是实际输出字段，输出字段名需唯一且不与未映射字段冲突；过滤、去重与水位仍使用源字段名。",
   flowSource: "流程脚本（JSON）",
   flowSourceHint: "这是可保存并执行的声明式流程。修改后点击应用脚本；当前不执行任意 JavaScript。",
   flowInvalidScript: "流程配置无效，请检查字段与上限",
@@ -520,6 +528,14 @@ export const enUS: Record<MessageKey, string> = {
   flowSourceOrigin: "Source origin (sourceOrigin)",
   flowSourceInfoHint:
     "Each record carries provenance fields when enabled: source URL, page number and origin (list/nested). Reserved names must not clash with extraction fields.",
+  flowMappingInfo: "Output field mapping (optional)",
+  flowMappingFrom: "Source field",
+  flowMappingTo: "Output name",
+  flowMappingFromPlaceholder: "extracted/source field",
+  flowMappingToPlaceholder: "delivered field name",
+  flowMappingAdd: "Add field mapping",
+  flowMappingInfoHint:
+    "Rename output fields before delivery. Source fields must be real output fields; output names must be unique and not collide with unmapped fields. Filter, dedupe and watermark keep using source names.",
   flowSource: "Workflow script (JSON)",
   flowSourceHint:
     "A saved, executable declarative workflow. Apply edits before saving; arbitrary JavaScript is not executed.",

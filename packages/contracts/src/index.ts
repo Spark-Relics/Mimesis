@@ -225,6 +225,24 @@ export const collectionWorkflowSchema = z.strictObject({
       message: "source must enable at least one provenance field",
     })
     .optional(),
+  /**
+   * Optional output field mapping: renames an extracted/source field to a
+   * delivered field name at the record boundary, after filtering/dedupe/watermark.
+   * `from` must be a real output field; `to` names must be unique and must not
+   * collide with unmapped output names (publish validation). Absent means no renaming.
+   */
+  mapping: z
+    .array(
+      z.strictObject({
+        from: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/u),
+        to: z
+          .string()
+          .regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/u)
+          .refine((name) => !["constructor", "prototype"].includes(name)),
+      }),
+    )
+    .max(64)
+    .optional(),
 });
 export type CollectionWorkflow = z.infer<typeof collectionWorkflowSchema>;
 /** Fixed input/output schema deterministically derived from an immutable workflow. */
