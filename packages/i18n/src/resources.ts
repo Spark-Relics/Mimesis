@@ -69,6 +69,9 @@ export const zhCN = {
   flowFieldSelector: "项内选择器",
   flowAttribute: "提取内容",
   flowRequired: "必填",
+  flowExpression: "计算表达式（可选）",
+  flowExpressionHint:
+    "使用 {字段名}、白名单函数（upper/lower/trim/length/replace/substring/concat/number/round）与算术/比较/逻辑运算符；求值失败记为步骤失败。",
   flowAddField: "添加字段",
   flowLoop: "循环与停止条件",
   flowLoopHint:
@@ -415,6 +418,9 @@ export const enUS: Record<MessageKey, string> = {
   flowFieldSelector: "Selector within item",
   flowAttribute: "Content",
   flowRequired: "Required",
+  flowExpression: "Computed expression (optional)",
+  flowExpressionHint:
+    "Use {field}, whitelisted functions (upper/lower/trim/length/replace/substring/concat/number/round) and arithmetic/comparison/logic operators. A failed evaluation fails the step.",
   flowAddField: "Add field",
   flowLoop: "Loop & stopping conditions",
   flowLoopHint:

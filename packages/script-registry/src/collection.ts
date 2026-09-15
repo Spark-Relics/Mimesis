@@ -7,6 +7,19 @@ import {
   workflowParametersSchema,
 } from "@clawler/contracts";
 import type { BrowserAutomationPort, ScriptContext, ScriptInput } from "@clawler/script-sdk";
+import { evaluateExpression } from "./expression.js";
+
+/** Computes expression-backed fields in place after selector extraction. */
+function applyExpressions(
+  extraction: Extraction,
+  rows: Array<Record<string, string>>,
+): Array<Record<string, string>> {
+  for (const field of extraction.fields) {
+    if (!field.expression) continue;
+    for (const row of rows) row[field.name] = evaluateExpression(field.expression, row);
+  }
+  return rows;
+}
 
 export function resolveWorkflow(
   input: CollectionWorkflow,
@@ -77,7 +90,10 @@ export async function collectPages(
       async () => {
         const deadline = Date.now() + workflow.waitTimeoutMs;
         while (true) {
-          const current = await browser.extract(workflow.extract, ctx.signal);
+          const current = applyExpressions(
+            workflow.extract,
+            await browser.extract(workflow.extract, ctx.signal),
+          );
           const nextSignature = JSON.stringify(current);
           if (current.length && nextSignature !== signature) {
             signature = nextSignature;
@@ -212,9 +228,16 @@ async function traverseDetails(
     const extracted = await extractFirst(ctx, browser, detail.extract, workflow.waitTimeoutMs);
     if (target) Object.assign(target, extracted);
     // A nested list on the detail page yields its own rows; each becomes a standalone record.
-    const rows = detail.rows;
-    if (rows) {
-      const nested = await ctx.step("extract", () => browser.extract(rows, ctx.signal), rows.items);
+    const rowsExtraction = detail.rows;
+    if (rowsExtraction) {
+      const nested = await ctx.step(
+        "extract",
+        async () => {
+          const page = await browser.extract(rowsExtraction, ctx.signal);
+          return applyExpressions(rowsExtraction, page);
+        },
+        rowsExtraction.items,
+      );
       if (nested.length) {
         const child = detail.children;
         if (child) {
@@ -235,7 +258,7 @@ async function traverseDetails(
             await traverseDetails(
               ctx,
               browser,
-              { ...workflow, extract: rows, detail: child },
+              { ...workflow, extract: rowsExtraction, detail: child },
               nested,
               records,
               budget,
@@ -303,7 +326,7 @@ async function extractFirst(
     async () => {
       const deadline = Date.now() + waitTimeoutMs;
       while (true) {
-        const current = await browser.extract(extraction, ctx.signal);
+        const current = applyExpressions(extraction, await browser.extract(extraction, ctx.signal));
         if (current.length) return current[0] ?? {};
         if (Date.now() >= deadline) throw new AppError("TIMEOUT");
         await pause(ctx.signal);

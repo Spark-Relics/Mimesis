@@ -498,6 +498,68 @@ describe("reusable collection interpreter", () => {
     expect(() => resolveWorkflow({ ...recipe, before: [], detail: deep }, {})).toThrow();
   });
 
+  it("computes expression fields after extraction and fails the step on bad expressions", async () => {
+    vi.useFakeTimers();
+    const { ctx } = fixture([[{ name: "cedar", price: "18.00" }]]);
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [],
+      pagination: null,
+      extract: {
+        items: ".item",
+        fields: [
+          { name: "name", selector: ".name", attribute: "text", required: true },
+          { name: "price", selector: ".price", attribute: "text", required: true },
+          {
+            name: "label",
+            selector: ".name",
+            attribute: "text",
+            required: false,
+            expression: "upper({name})",
+          },
+          {
+            name: "total",
+            selector: ".price",
+            attribute: "text",
+            required: false,
+            expression: "round(number({price}) * 1.1, 2)",
+          },
+        ],
+      },
+    };
+    const pending = collectPages(ctx, { url: "https://example.com", workflow });
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    expect(result.records).toEqual([
+      { name: "cedar", price: "18.00", label: "CEDAR", total: "19.8" },
+    ]);
+
+    const failing: CollectionWorkflow = {
+      ...recipe,
+      before: [],
+      pagination: null,
+      extract: {
+        items: ".item",
+        fields: [
+          { name: "name", selector: ".name", attribute: "text", required: true },
+          {
+            name: "bad",
+            selector: ".name",
+            attribute: "text",
+            required: false,
+            expression: "eval({name})",
+          },
+        ],
+      },
+    };
+    const { ctx: badCtx } = fixture([[{ name: "x" }]]);
+    const rejection = collectPages(badCtx, { url: "https://example.com", workflow: failing }).catch(
+      (error: unknown) => error,
+    );
+    await vi.runAllTimersAsync();
+    await expect(rejection).resolves.toBeInstanceOf(AppError);
+  });
+
   it("falls back to the configured back control when browser history is unavailable", async () => {
     vi.useFakeTimers();
     const { ctx, automation } = fixture([[{ name: "Cedar" }]]);

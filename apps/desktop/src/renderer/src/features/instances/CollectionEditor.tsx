@@ -561,6 +561,7 @@ function ExtractionFields({
           <span>{t("flowFieldSelector")}</span>
           <span>{t("flowAttribute")}</span>
           <span>{t("flowRequired")}</span>
+          <span>{t("flowExpression")}</span>
         </div>
         {fields.map((field, index) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: Controlled fields have editable names and no stable identity in the executable schema.
@@ -601,6 +602,22 @@ function ExtractionFields({
               checked={field.required}
               disabled={disabled}
               onChange={(event) => replace(index, { ...field, required: event.target.checked })}
+            />
+            <input
+              className="field-expression"
+              aria-label={t("flowExpression")}
+              title={t("flowExpressionHint")}
+              placeholder={t("flowExpression")}
+              value={field.expression ?? ""}
+              disabled={disabled}
+              onChange={(event) => {
+                if (!event.target.value) {
+                  const { expression: _removed, ...rest } = field;
+                  replace(index, rest);
+                  return;
+                }
+                replace(index, { ...field, expression: event.target.value });
+              }}
             />
             <Button
               tone="ghost"
