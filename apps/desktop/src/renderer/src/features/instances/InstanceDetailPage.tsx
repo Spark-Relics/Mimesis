@@ -13,6 +13,7 @@ import {
   Braces,
   Circle,
   FileClock,
+  FlaskConical,
   Globe2,
   History,
   Play,
@@ -218,6 +219,30 @@ export function InstanceDetailPage({
       setMessage(t("versionImported", { version: versionName(version.version) }));
     });
   }
+  /** Fixed input/output schema preview derived from the current draft. */
+  async function showPlan() {
+    const validated = validate();
+    if (!validated) return;
+    await perform(async () => {
+      const plan = await bridge.planWorkflow(validated.workflow);
+      setMessage(
+        t("flowPlanSummary", {
+          input: plan.input.join(", ") || "—",
+          output: plan.output.join(", "),
+          pages: String(plan.maxPages),
+        }),
+      );
+    });
+  }
+  /** Bounded single-page dry run of the draft: never persisted to run history. */
+  async function dryRunDraft() {
+    const validated = validate();
+    if (!validated) return;
+    await perform(async () => {
+      onAcceptRun(await bridge.dryRun(instance.id, validated.workflow, validated.parameters));
+      setTab("runs");
+    });
+  }
   function useLastClick() {
     const last = workflow.before.at(-1);
     if (last?.kind !== "click") return;
@@ -420,6 +445,13 @@ export function InstanceDetailPage({
             <div className="workflow-actions workflow-footer">
               <Button disabled={disabled} onClick={validate}>
                 {t("flowCheck")}
+              </Button>
+              <Button disabled={disabled} onClick={() => void showPlan()}>
+                {t("flowPlan")}
+              </Button>
+              <Button disabled={disabled} onClick={() => void dryRunDraft()}>
+                <FlaskConical size={13} />
+                {t("flowDryRun")}
               </Button>
               <Button disabled={disabled} onClick={() => void saveDraft()}>
                 <Save size={13} />

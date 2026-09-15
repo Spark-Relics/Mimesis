@@ -2,12 +2,16 @@ import {
   AppError,
   type CollectionWorkflow,
   collectionWorkflowSchema,
+  type DetailTraversal,
   type DocumentSnapshot,
   type Extraction,
+  type WorkflowPlan,
   workflowParametersSchema,
+  workflowPlanSchema,
 } from "@clawler/contracts";
 import type { BrowserAutomationPort, ScriptContext, ScriptInput } from "@clawler/script-sdk";
 import { evaluateExpression } from "./expression.js";
+import { parameterNames, validateForPublish } from "./versions.js";
 
 /** Computes expression-backed fields in place after selector extraction. */
 function applyExpressions(
@@ -38,6 +42,53 @@ export function resolveWorkflow(
     );
   }
   return collectionWorkflowSchema.parse(workflow);
+}
+
+/** Bounded single-page variant used for dry runs: pagination off, budgets capped. */
+export function dryRunWorkflow(input: CollectionWorkflow): CollectionWorkflow {
+  const workflow = collectionWorkflowSchema.parse(input);
+  return collectionWorkflowSchema.parse({
+    ...workflow,
+    before: workflow.before,
+    pagination: null,
+    maxRecords: Math.min(workflow.maxRecords, 20),
+    detail: workflow.detail && {
+      ...workflow.detail,
+      maxItems: Math.min(workflow.detail.maxItems, 3),
+    },
+  });
+}
+
+function fieldNames(extract: Extraction): string[] {
+  return extract.fields.map((field) => field.name);
+}
+
+function traversalNames(node: DetailTraversal): string[] {
+  let nested: string[] = [];
+  if (node.children) nested = traversalNames(node.children);
+  let rows: string[] = [];
+  if (node.rows) rows = fieldNames(node.rows);
+  return [...fieldNames(node.extract), ...rows, ...nested];
+}
+
+/** Fixed input/output contract derived from the immutable workflow content. */
+export function planWorkflow(input: CollectionWorkflow): WorkflowPlan {
+  const workflow = validateForPublish(input);
+  let detailFields: string[] = [];
+  if (workflow.detail) detailFields = traversalNames(workflow.detail);
+  const output = [...fieldNames(workflow.extract), ...detailFields];
+  if (new Set(output).size !== output.length) throw new AppError("INVALID_INPUT");
+  let maxPages = 1;
+  if (workflow.pagination) maxPages = workflow.pagination.maxPages;
+  let maxItemsPerPage = 1;
+  if (workflow.detail) maxItemsPerPage = workflow.detail.maxItems;
+  return workflowPlanSchema.parse({
+    input: parameterNames(workflow),
+    output,
+    maxPages,
+    maxRecords: workflow.maxRecords,
+    maxItemsPerPage,
+  });
 }
 
 async function pause(signal: AbortSignal): Promise<void> {

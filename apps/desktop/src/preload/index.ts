@@ -10,6 +10,7 @@ import {
   recordingSchema,
   runSchema,
   storageLocationSchema,
+  workflowPlanSchema,
   workflowVersionSchema,
   workspaceSchema,
   z,
@@ -75,6 +76,8 @@ const bridge: DesktopBridge = {
       .parse(await request({ method: "versions.export", versionId })),
   importVersion: async (instanceId) =>
     workflowVersionSchema.parse(await request({ method: "versions.import", instanceId })),
+  planWorkflow: async (workflow) =>
+    workflowPlanSchema.parse(await request({ method: "workflow.plan", workflow })),
   setBrowserBounds: async (bounds) => {
     await request({ method: "browser.bounds", bounds });
   },
@@ -90,6 +93,8 @@ const bridge: DesktopBridge = {
   },
   startRun: async (instanceId, parameters) =>
     runSchema.parse(await request({ method: "runs.start", instanceId, parameters })),
+  dryRun: async (instanceId, workflow, parameters) =>
+    runSchema.parse(await request({ method: "runs.dry", instanceId, workflow, parameters })),
   cancelRun: async (id) => {
     await request({ method: "runs.cancel", id });
   },

@@ -3,7 +3,7 @@ import type { ScriptDefinition } from "@clawler/script-sdk";
 import { collectPages } from "./collection";
 import { inspectPage } from "./page-inspector";
 
-export { resolveWorkflow } from "./collection";
+export { dryRunWorkflow, planWorkflow, resolveWorkflow } from "./collection";
 export {
   bindingOf,
   buildVersion,

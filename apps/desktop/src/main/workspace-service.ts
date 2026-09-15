@@ -17,8 +17,10 @@ import {
 import {
   bindingOf,
   buildVersion,
+  dryRunWorkflow,
   exportVersionFile,
   importVersionFile,
+  planWorkflow,
   resolveWorkflow,
   ScriptRegistry,
   verifyVersion,
@@ -36,6 +38,8 @@ export class WorkspaceService {
   private readonly registry = new ScriptRegistry();
   private readonly host: BrowserHost;
   private readonly runner: TaskRunner;
+  /** Isolated runner for dry runs: emits to the renderer but never persists run history. */
+  private readonly dryRunner: TaskRunner;
   private state: StoredState;
   private mutationPending = false;
   private storageFailed = false;
@@ -50,7 +54,12 @@ export class WorkspaceService {
     this.state = state;
     this.host = new BrowserHost(window);
     this.runner = new TaskRunner(this.host);
+    this.dryRunner = new TaskRunner(this.host, 60_000);
+    const emitRun = (run: Run) => {
+      if (!this.window.isDestroyed()) this.window.webContents.send(IPC.runChanged, run);
+    };
     this.runner.subscribe((run) => this.recordRun(run));
+    this.dryRunner.subscribe(emitRun);
     this.host.selectProfile(this.selectedProfile());
   }
 
@@ -115,7 +124,7 @@ export class WorkspaceService {
   private assertIdle(): void {
     if (this.stopping) throw new AppError("BUSY");
     if (this.storageFailed) throw new AppError("STORAGE_FAILED");
-    if (this.runner.busy || this.mutationPending) throw new AppError("BUSY");
+    if (this.runner.busy || this.dryRunner.busy || this.mutationPending) throw new AppError("BUSY");
   }
 
   listInstances(): AutomationInstance[] {
@@ -230,6 +239,7 @@ export class WorkspaceService {
   async shutdown(): Promise<void> {
     this.stopping = true;
     await this.runner.stop();
+    await this.dryRunner.stop();
     await this.pendingRunSave;
   }
 
@@ -282,6 +292,8 @@ export class WorkspaceService {
         });
         return instance;
       }
+      case "workflow.plan":
+        return planWorkflow(request.workflow);
       case "workspace.get": {
         if (this.storageFailed) throw new AppError("STORAGE_FAILED");
         return {
@@ -518,14 +530,38 @@ export class WorkspaceService {
           instance.id,
         );
       }
+      case "runs.dry": {
+        this.assertIdle();
+        if (this.host.recorder.active) throw new AppError("BUSY");
+        if (this.runner.busy || this.dryRunner.busy) throw new AppError("BUSY");
+        const instance = this.state.instances.find((entry) => entry.id === request.instanceId);
+        if (!instance) throw new AppError("NOT_FOUND");
+        const profile = this.state.profiles.find((entry) => entry.id === instance.profileId);
+        if (!profile) throw new AppError("NOT_FOUND");
+        const workflow = dryRunWorkflow(request.workflow);
+        if (request.parameters) resolveWorkflow(workflow, request.parameters);
+        this.host.selectProfile(profile);
+        return this.dryRunner.start(
+          this.registry.get("collection-workflow"),
+          {
+            url: instance.targetUrl,
+            workflow,
+            ...(request.parameters && { parameters: request.parameters }),
+          },
+          instance.profileId,
+          instance.id,
+        );
+      }
       case "runs.cancel":
-        this.runner.cancel(request.id);
+        if (this.dryRunner.busy) this.dryRunner.cancel(request.id);
+        else this.runner.cancel(request.id);
         return null;
     }
   }
 
   dispose(): void {
     this.runner.dispose();
+    this.dryRunner.dispose();
     this.host.dispose();
   }
 }

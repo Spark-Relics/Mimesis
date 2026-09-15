@@ -156,6 +156,17 @@ export const collectionWorkflowSchema = z.strictObject({
   maxRecords: z.number().int().min(1).max(2000),
 });
 export type CollectionWorkflow = z.infer<typeof collectionWorkflowSchema>;
+/** Fixed input/output schema deterministically derived from an immutable workflow. */
+export const workflowPlanSchema = z.strictObject({
+  /** Input parameter names the workflow requires, in first-use order. */
+  input: z.array(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/u)).max(20),
+  /** Output record fields in record order: list fields, then detail, then nested-row fields. */
+  output: z.array(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/u)).max(64),
+  maxPages: z.number().int().min(1).max(50),
+  maxRecords: z.number().int().min(1).max(2000),
+  maxItemsPerPage: z.number().int().min(1).max(500),
+});
+export type WorkflowPlan = z.infer<typeof workflowPlanSchema>;
 export type WorkflowAction = z.infer<typeof workflowActionSchema>;
 export type WorkflowCondition = z.infer<typeof workflowConditionSchema>;
 export type ActionError = z.infer<typeof actionErrorSchema>;
@@ -413,6 +424,10 @@ export const requestSchema = z.discriminatedUnion("method", [
   }),
   z.object({ method: z.literal("versions.export"), versionId: z.string().uuid() }),
   z.object({ method: z.literal("versions.import"), instanceId: z.string().uuid() }),
+  z.object({
+    method: z.literal("workflow.plan"),
+    workflow: collectionWorkflowSchema,
+  }),
 
   z.object({ method: z.literal("browser.bounds"), bounds: boundsSchema }),
   z.object({ method: z.literal("browser.navigate"), url: z.string().min(1).max(4096) }),
@@ -422,6 +437,12 @@ export const requestSchema = z.discriminatedUnion("method", [
   z.object({
     method: z.literal("runs.start"),
     instanceId: z.string().uuid(),
+    parameters: workflowParametersSchema.optional(),
+  }),
+  z.object({
+    method: z.literal("runs.dry"),
+    instanceId: z.string().uuid(),
+    workflow: collectionWorkflowSchema,
     parameters: workflowParametersSchema.optional(),
   }),
   z.object({ method: z.literal("runs.cancel"), id: z.string().uuid() }),
@@ -451,6 +472,7 @@ export interface DesktopBridge {
   rollbackWorkflow(instanceId: string, versionId: string): Promise<AutomationInstance>;
   exportVersion(versionId: string): Promise<string | null>;
   importVersion(instanceId: string): Promise<WorkflowVersion>;
+  planWorkflow(workflow: CollectionWorkflow): Promise<WorkflowPlan>;
 
   setBrowserBounds(bounds: BrowserBounds): Promise<void>;
   navigate(url: string): Promise<void>;
@@ -458,6 +480,12 @@ export interface DesktopBridge {
   stopRecording(): Promise<Recording>;
   controlWindow(action: WindowControl): Promise<void>;
   startRun(instanceId: string, parameters?: Record<string, string>): Promise<Run>;
+  /** Bounded single-page dry run of a draft workflow. Never persisted to run history. */
+  dryRun(
+    instanceId: string,
+    workflow: CollectionWorkflow,
+    parameters?: Record<string, string>,
+  ): Promise<Run>;
   cancelRun(id: string): Promise<void>;
   onRunChanged(listener: (run: Run) => void): () => void;
 }

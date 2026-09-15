@@ -6,7 +6,7 @@ import {
 } from "@clawler/contracts";
 import type { ScriptContext } from "@clawler/script-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { collectPages, resolveWorkflow } from "./collection";
+import { collectPages, dryRunWorkflow, planWorkflow, resolveWorkflow } from "./collection";
 
 const recipe: CollectionWorkflow = {
   version: 1,
@@ -80,6 +80,70 @@ function fixture(
 afterEach(() => vi.useRealTimers());
 
 describe("reusable collection interpreter", () => {
+  it("derives a fixed input/output schema from the workflow", () => {
+    const traversal: DetailTraversal = {
+      link: ".link",
+      extract: {
+        items: ".detail",
+        fields: [{ name: "body", selector: ".body", attribute: "text", required: true }],
+      },
+      maxItems: 5,
+      rows: {
+        items: ".rows",
+        fields: [{ name: "rowName", selector: ".row-name", attribute: "text", required: true }],
+      },
+    };
+    const plan = planWorkflow({
+      ...recipe,
+      detail: traversal,
+    });
+    expect(plan).toEqual({
+      input: ["query"],
+      output: ["name", "body", "rowName"],
+      maxPages: 3,
+      maxRecords: 10,
+      maxItemsPerPage: 5,
+    });
+  });
+
+  it("rejects a plan with duplicate output field names across extractions", () => {
+    expect(() =>
+      planWorkflow({
+        ...recipe,
+        detail: {
+          link: ".link",
+          extract: {
+            items: ".detail",
+            fields: [{ name: "name", selector: ".body", attribute: "text", required: true }],
+          },
+          maxItems: 5,
+        },
+      }),
+    ).toThrow("INVALID_INPUT");
+  });
+
+  it("bounds a dry run to a single page with capped budgets", () => {
+    const dry = dryRunWorkflow(recipe);
+    expect(dry.pagination).toBeNull();
+    expect(dry.maxRecords).toBe(10);
+    const withDetail = dryRunWorkflow({
+      ...recipe,
+      maxRecords: 2000,
+      detail: {
+        link: ".link",
+        extract: {
+          items: ".detail",
+          fields: [{ name: "body", selector: ".body", attribute: "text", required: true }],
+        },
+        maxItems: 500,
+      },
+    });
+    expect(withDetail.maxRecords).toBe(20);
+    expect(withDetail.detail?.maxItems).toBe(3);
+    // The source recipe stays untouched.
+    expect(recipe.pagination).toEqual({ next: ".next", maxPages: 3 });
+  });
+
   it("substitutes only fill parameters once without changing the saved recipe", () => {
     const resolved = resolveWorkflow(recipe, { query: "literal {{other}} $&" });
     expect(resolved.before[0]).toEqual({
