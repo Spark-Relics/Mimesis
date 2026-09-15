@@ -1,6 +1,7 @@
 import {
   type CollectionWorkflow,
   collectionWorkflowSchema,
+  type DetailTraversal,
   type Extraction,
   type WorkflowAction,
 } from "@clawler/contracts";
@@ -313,79 +314,12 @@ export function CollectionEditor({
           {t("flowEnableDetail")}
         </label>
         {detail && (
-          <div className="workflow-form-row">
-            <label className="workflow-field">
-              {t("flowDetailLink")}
-              <input
-                value={detail.link}
-                disabled={disabled}
-                placeholder={t("flowDetailLinkExample")}
-                onChange={(event) =>
-                  onChange({ ...workflow, detail: { ...detail, link: event.target.value } })
-                }
-              />
-            </label>
-            <label className="workflow-field short-field">
-              {t("flowDetailMaxItems")}
-              <input
-                type="number"
-                min={1}
-                max={500}
-                value={detail.maxItems}
-                disabled={disabled}
-                onChange={(event) =>
-                  onChange({
-                    ...workflow,
-                    detail: { ...detail, maxItems: Number(event.target.value) },
-                  })
-                }
-              />
-            </label>
-          </div>
-        )}
-        {detail && (
-          <>
-            <label className="workflow-field">
-              {t("flowDetailItems")}
-              <input
-                value={detail.extract.items}
-                disabled={disabled}
-                placeholder={t("flowItemsExample")}
-                onChange={(event) =>
-                  onChange({
-                    ...workflow,
-                    detail: {
-                      ...detail,
-                      extract: { ...detail.extract, items: event.target.value },
-                    },
-                  })
-                }
-              />
-            </label>
-            <label className="workflow-field">
-              {t("flowDetailBack")}
-              <input
-                value={detail.back ?? ""}
-                disabled={disabled}
-                placeholder={t("flowDetailBackPlaceholder")}
-                onChange={(event) => {
-                  // An empty field means "use browser history", so the key is dropped instead of stored empty.
-                  const back = event.target.value;
-                  onChange({ ...workflow, detail: { ...detail, back: back || undefined } });
-                }}
-              />
-            </label>
-            <ExtractionFields
-              fields={detail.extract.fields}
-              disabled={disabled}
-              onChange={(fields) =>
-                onChange({
-                  ...workflow,
-                  detail: { ...detail, extract: { ...detail.extract, fields } },
-                })
-              }
-            />
-          </>
+          <TraversalEditor
+            depth={1}
+            node={detail}
+            disabled={disabled}
+            onNode={(node) => onChange({ ...workflow, detail: node })}
+          />
         )}
       </section>
 
@@ -421,6 +355,182 @@ export function CollectionEditor({
         {error && <p role="alert">{error}</p>}
       </details>
     </div>
+  );
+}
+
+/**
+ * Recursive editor for one traversal level. `depth` bounds the UI to the same three-level
+ * nesting limit the workflow schema enforces.
+ */
+function TraversalEditor({
+  depth,
+  node,
+  disabled,
+  onNode,
+}: {
+  depth: number;
+  node: DetailTraversal;
+  disabled: boolean;
+  onNode(node: DetailTraversal): void;
+}) {
+  const { t } = useI18n();
+  const childDepth = depth + 1;
+  return (
+    <>
+      <div className="workflow-form-row">
+        <label className="workflow-field">
+          {t("flowDetailLink")}
+          <input
+            value={node.link}
+            disabled={disabled}
+            placeholder={t("flowDetailLinkExample")}
+            onChange={(event) => onNode({ ...node, link: event.target.value })}
+          />
+        </label>
+        <label className="workflow-field short-field">
+          {t("flowDetailMaxItems")}
+          <input
+            type="number"
+            min={1}
+            max={500}
+            value={node.maxItems}
+            disabled={disabled}
+            onChange={(event) => onNode({ ...node, maxItems: Number(event.target.value) })}
+          />
+        </label>
+      </div>
+      <label className="workflow-field">
+        {t("flowDetailItems")}
+        <input
+          value={node.extract.items}
+          disabled={disabled}
+          placeholder={t("flowItemsExample")}
+          onChange={(event) =>
+            onNode({ ...node, extract: { ...node.extract, items: event.target.value } })
+          }
+        />
+      </label>
+      <label className="workflow-field">
+        {t("flowDetailBack")}
+        <input
+          value={node.back ?? ""}
+          disabled={disabled}
+          placeholder={t("flowDetailBackPlaceholder")}
+          onChange={(event) => {
+            // An empty field means "use browser history", so the key is dropped instead of stored empty.
+            const back = event.target.value;
+            onNode({ ...node, back: back || undefined });
+          }}
+        />
+      </label>
+      <ExtractionFields
+        fields={node.extract.fields}
+        disabled={disabled}
+        onChange={(fields) => onNode({ ...node, extract: { ...node.extract, fields } })}
+      />
+      <label className="workflow-check">
+        <input
+          type="checkbox"
+          checked={Boolean(node.rows)}
+          disabled={disabled}
+          onChange={(event) => {
+            // Disabling drops both the nested extraction and any child traversal below it.
+            if (!event.target.checked) {
+              onNode({ ...node, rows: undefined, children: undefined });
+              return;
+            }
+            onNode({
+              ...node,
+              rows: {
+                items: "",
+                fields: [{ name: "sku", selector: "", attribute: "text", required: true }],
+              },
+            });
+          }}
+        />
+        {t("flowRows")}
+      </label>
+      <p className="workflow-muted">{t("flowRowsHint")}</p>
+      {node.rows && (
+        <>
+          <RowsEditor
+            rows={node.rows}
+            disabled={disabled}
+            onChange={(rows) => onNode({ ...node, rows })}
+          />
+          {childDepth <= 3 && (
+            <>
+              <label className="workflow-check">
+                <input
+                  type="checkbox"
+                  checked={Boolean(node.children)}
+                  disabled={disabled}
+                  onChange={(event) => {
+                    if (!event.target.checked) {
+                      onNode({ ...node, children: undefined });
+                      return;
+                    }
+                    onNode({
+                      ...node,
+                      children: {
+                        link: "",
+                        extract: {
+                          items: "",
+                          fields: [
+                            { name: "value", selector: "", attribute: "text", required: false },
+                          ],
+                        },
+                        maxItems: 10,
+                      },
+                    });
+                  }}
+                />
+                {t("flowChildren")}
+              </label>
+              <p className="workflow-muted">{t("flowChildrenHint")}</p>
+              {node.children && (
+                <TraversalEditor
+                  depth={childDepth}
+                  node={node.children}
+                  disabled={disabled}
+                  onNode={(child) => onNode({ ...node, children: child })}
+                />
+              )}
+            </>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+/** Editor for the nested-row extraction on a detail page. */
+function RowsEditor({
+  rows,
+  disabled,
+  onChange,
+}: {
+  rows: Extraction;
+  disabled: boolean;
+  onChange(rows: Extraction): void;
+}) {
+  const { t } = useI18n();
+  return (
+    <>
+      <label className="workflow-field">
+        {t("flowRowsItems")}
+        <input
+          value={rows.items}
+          disabled={disabled}
+          onChange={(event) => onChange({ ...rows, items: event.target.value })}
+        />
+      </label>
+      <ExtractionFields
+        fields={rows.fields}
+        disabled={disabled}
+        onChange={(fields) => onChange({ ...rows, fields })}
+      />
+    </>
   );
 }
 

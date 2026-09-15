@@ -3,6 +3,7 @@ import {
   type CollectionWorkflow,
   collectionWorkflowSchema,
   type DocumentSnapshot,
+  type Extraction,
   workflowParametersSchema,
 } from "@clawler/contracts";
 import type { BrowserAutomationPort, ScriptContext, ScriptInput } from "@clawler/script-sdk";
@@ -113,7 +114,18 @@ export async function collectPages(
     }
     if (stopReason === "record-limit") break;
     // Detail traversal runs once per list page, before pagination advances.
-    detailCapped = (await traverseDetails(ctx, browser, workflow, rows, records)) || detailCapped;
+    const budget: CollectionBudget = {
+      seen,
+      bytes,
+      stopReason: stopReason as CollectionBudget["stopReason"],
+    };
+    detailCapped =
+      (await traverseDetails(ctx, browser, workflow, rows, records, budget)) || detailCapped;
+    bytes = budget.bytes;
+    if (budget.stopReason === "record-limit") {
+      stopReason = "record-limit";
+      break;
+    }
     if (added === 0) {
       stopReason = "no-new-records";
       break;
@@ -152,6 +164,13 @@ export async function collectPages(
   };
 }
 
+/** Shared deduplication and byte budget so nested rows obey the same limits as list rows. */
+type CollectionBudget = {
+  seen: Set<string>;
+  bytes: number;
+  stopReason: NonNullable<DocumentSnapshot["collection"]>["stopReason"];
+};
+
 /**
  * Opens each list row's detail page in order, merges the extracted fields into the matching
  * record, then returns to the list. Returns true when the configured item limit was reached.
@@ -168,6 +187,7 @@ async function traverseDetails(
   workflow: CollectionWorkflow,
   rows: Array<Record<string, string>>,
   records: Array<Record<string, string>>,
+  budget: CollectionBudget,
 ): Promise<boolean> {
   const detail = workflow.detail;
   if (!detail) return false;
@@ -189,20 +209,54 @@ async function traverseDetails(
         ),
       `detail: ${detail.link}`,
     );
-    const extracted = await ctx.step(
-      "extract",
-      async () => {
-        const deadline = Date.now() + workflow.waitTimeoutMs;
-        while (true) {
-          const current = await browser.extract(detail.extract, ctx.signal);
-          if (current.length) return current[0] ?? {};
-          if (Date.now() >= deadline) throw new AppError("TIMEOUT");
-          await pause(ctx.signal);
-        }
-      },
-      detail.extract.items,
-    );
+    const extracted = await extractFirst(ctx, browser, detail.extract, workflow.waitTimeoutMs);
     if (target) Object.assign(target, extracted);
+    // A nested list on the detail page yields its own rows; each becomes a standalone record.
+    const rows = detail.rows;
+    if (rows) {
+      const nested = await ctx.step("extract", () => browser.extract(rows, ctx.signal), rows.items);
+      if (nested.length) {
+        const child = detail.children;
+        if (child) {
+          // Nested rows must land in the dataset first so child merges have targets.
+          for (const row of nested) {
+            const rowKey = JSON.stringify(row);
+            if (budget.seen.has(rowKey)) continue;
+            const size = new TextEncoder().encode(rowKey).byteLength;
+            if (records.length >= workflow.maxRecords || budget.bytes + size > 2_000_000) {
+              budget.stopReason = "record-limit";
+              break;
+            }
+            records.push(row);
+            budget.seen.add(rowKey);
+            budget.bytes += size;
+          }
+          if (budget.stopReason !== "record-limit") {
+            await traverseDetails(
+              ctx,
+              browser,
+              { ...workflow, extract: rows, detail: child },
+              nested,
+              records,
+              budget,
+            );
+          }
+        } else {
+          for (const row of nested) {
+            const rowKey = JSON.stringify(row);
+            const size = new TextEncoder().encode(rowKey).byteLength;
+            if (records.length >= workflow.maxRecords || budget.bytes + size > 2_000_000) {
+              budget.stopReason = "record-limit";
+              break;
+            }
+            if (budget.seen.has(rowKey)) continue;
+            records.push(row);
+            budget.seen.add(rowKey);
+            budget.bytes += size;
+          }
+        }
+      }
+    }
     await ctx.step(
       "navigate",
       async () => {
@@ -235,4 +289,26 @@ async function traverseDetails(
     await pause(ctx.signal);
   }
   return count > detail.maxItems;
+}
+
+/** Waits until the scoped extraction yields at least one record and returns the first one. */
+async function extractFirst(
+  ctx: ScriptContext,
+  browser: BrowserAutomationPort,
+  extraction: Extraction,
+  waitTimeoutMs: number,
+): Promise<Record<string, string>> {
+  return ctx.step(
+    "extract",
+    async () => {
+      const deadline = Date.now() + waitTimeoutMs;
+      while (true) {
+        const current = await browser.extract(extraction, ctx.signal);
+        if (current.length) return current[0] ?? {};
+        if (Date.now() >= deadline) throw new AppError("TIMEOUT");
+        await pause(ctx.signal);
+      }
+    },
+    extraction.items,
+  );
 }

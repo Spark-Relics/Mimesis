@@ -109,16 +109,36 @@ export const extractionSchema = z
   })
   .refine((value) => new Set(value.fields.map((field) => field.name)).size === value.fields.length);
 /** Optional nested traversal: open each list row's detail page, extract fields, then return to the list. */
-export const detailSchema = z.strictObject({
+export interface DetailTraversal {
   /** Selector resolved *within* a list item that opens its detail page. */
-  link: selectorSchema,
+  link: string;
   /** Page-level extraction on the opened detail page; the first record is merged into the list row. */
-  extract: extractionSchema,
+  extract: Extraction;
   /** Control that returns to the list page. A real history entry is preferred when available. */
+  back?: string | undefined;
+  maxItems: number;
+  /** Nested list living on the opened page; its rows become standalone records. */
+  rows?: Extraction | undefined;
+  /** Traversal applied to each nested row. Total nesting depth is capped at 3. */
+  children?: DetailTraversal | undefined;
+}
+function traversalDepth(node: DetailTraversal): number {
+  if (!node.children) return 1;
+  return 1 + traversalDepth(node.children);
+}
+const detailNodeSchema: z.ZodType<DetailTraversal> = z.strictObject({
+  link: selectorSchema,
+  extract: z.lazy(() => extractionSchema),
   back: selectorSchema.optional(),
   maxItems: z.number().int().min(1).max(500),
+  rows: z.lazy(() => extractionSchema).optional(),
+  children: z.lazy(() => detailSchema).optional(),
 });
-export type DetailTraversal = z.infer<typeof detailSchema>;
+export const detailSchema = detailNodeSchema.superRefine((node, issue) => {
+  // The interpreter is recursive but bounded: deeper nesting is rejected at validation time.
+  if (traversalDepth(node) > 3)
+    issue.addIssue({ code: "custom", message: "traversal depth exceeds 3" });
+});
 export const collectionWorkflowSchema = z.strictObject({
   version: z.literal(1),
   before: z.array(workflowActionSchema).max(20),

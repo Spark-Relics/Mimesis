@@ -1,4 +1,9 @@
-import { AppError, type CollectionWorkflow, type StepKind } from "@clawler/contracts";
+import {
+  AppError,
+  type CollectionWorkflow,
+  type DetailTraversal,
+  type StepKind,
+} from "@clawler/contracts";
 import type { ScriptContext } from "@clawler/script-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { collectPages, resolveWorkflow } from "./collection";
@@ -349,6 +354,148 @@ describe("reusable collection interpreter", () => {
     ]);
     expect(result.collection?.truncated).toBe(true);
     expect(automation.actOnItem).toHaveBeenCalledTimes(2);
+  });
+
+  it("collects a nested list on the detail page as standalone records under the shared budget", async () => {
+    vi.useFakeTimers();
+    const { ctx, automation } = fixture([[{ name: "Cedar" }]]);
+    automation.snapshotItems.mockResolvedValue(1);
+    automation.extract
+      // List page rows, then the detail page merge, then the nested list on the detail page.
+      .mockResolvedValueOnce([{ name: "Cedar" }])
+      .mockResolvedValueOnce([{ price: "18.00" }])
+      .mockResolvedValue([{ sku: "A1" }, { sku: "A2" }, { sku: "A1" }]);
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [],
+      pagination: null,
+      maxRecords: 3,
+      detail: {
+        link: ".detail-link",
+        extract: {
+          items: "main",
+          fields: [{ name: "price", selector: ".price", attribute: "text", required: true }],
+        },
+        rows: {
+          items: ".variants",
+          fields: [{ name: "sku", selector: ".sku", attribute: "text", required: true }],
+        },
+        maxItems: 1,
+      },
+    };
+    const pending = collectPages(ctx, { url: "https://example.com", workflow });
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    // The list row keeps its merged detail fields; nested rows become their own deduplicated records.
+    expect(result.records).toEqual([
+      { name: "Cedar", price: "18.00" },
+      { sku: "A1" },
+      { sku: "A2" },
+    ]);
+  });
+
+  it("opens child detail pages for nested rows and merges their fields", async () => {
+    vi.useFakeTimers();
+    const { ctx, automation } = fixture([[{ name: "Cedar" }]]);
+    automation.snapshotItems
+      .mockResolvedValueOnce(1) // Top-level list rows.
+      .mockResolvedValueOnce(2); // Nested rows on the detail page.
+    automation.extract
+      .mockResolvedValueOnce([{ name: "Cedar" }]) // List page.
+      .mockResolvedValueOnce([{ price: "18.00" }]) // Detail page merge.
+      .mockResolvedValueOnce([{ sku: "A1" }, { sku: "A2" }]) // Nested list.
+      .mockResolvedValueOnce([{ stock: "7" }]) // Child detail for row 0.
+      .mockResolvedValueOnce([{ stock: "3" }]) // Child detail for row 1.
+      .mockResolvedValue([{ sku: "A1" }, { sku: "A2" }]);
+    const childTraversal: DetailTraversal = {
+      link: ".child-link",
+      extract: {
+        items: ".stock",
+        fields: [{ name: "stock", selector: ".value", attribute: "text", required: true }],
+      },
+      maxItems: 5,
+    };
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [],
+      pagination: null,
+      detail: {
+        link: ".detail-link",
+        extract: {
+          items: "main",
+          fields: [{ name: "price", selector: ".price", attribute: "text", required: true }],
+        },
+        rows: {
+          items: ".variants",
+          fields: [{ name: "sku", selector: ".sku", attribute: "text", required: true }],
+        },
+        children: childTraversal,
+        maxItems: 1,
+      },
+    };
+    const pending = collectPages(ctx, { url: "https://example.com", workflow });
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    expect(result.records).toEqual([
+      { name: "Cedar", price: "18.00" },
+      { sku: "A1", stock: "7" },
+      { sku: "A2", stock: "3" },
+    ]);
+    // Row 0 opens via the top-level snapshot index, nested rows via their own snapshot scope.
+    expect(automation.actOnItem).toHaveBeenCalledWith(
+      0,
+      { kind: "click", selector: ".detail-link" },
+      workflow.waitTimeoutMs,
+      ctx.signal,
+    );
+  });
+
+  it("rejects traversal nesting deeper than three levels at validation time", () => {
+    const deep = {
+      link: ".a",
+      extract: {
+        items: "main",
+        fields: [{ name: "x", selector: ".x", attribute: "text" as const, required: true }],
+      },
+      maxItems: 1,
+      rows: {
+        items: ".r",
+        fields: [{ name: "y", selector: ".y", attribute: "text" as const, required: true }],
+      },
+      children: {
+        link: ".b",
+        extract: {
+          items: "main",
+          fields: [{ name: "z", selector: ".z", attribute: "text" as const, required: true }],
+        },
+        maxItems: 1,
+        rows: {
+          items: ".r2",
+          fields: [{ name: "w", selector: ".w", attribute: "text" as const, required: true }],
+        },
+        children: {
+          link: ".c",
+          extract: {
+            items: "main",
+            fields: [{ name: "v", selector: ".v", attribute: "text" as const, required: true }],
+          },
+          maxItems: 1,
+          rows: {
+            items: ".r3",
+            fields: [{ name: "u", selector: ".u", attribute: "text" as const, required: true }],
+          },
+          children: {
+            link: ".d",
+            extract: {
+              items: "main",
+              fields: [{ name: "t", selector: ".t", attribute: "text" as const, required: true }],
+            },
+            maxItems: 1,
+          },
+        },
+      },
+    };
+    expect(() => resolveWorkflow({ ...recipe, before: [], detail: deep }, {})).toThrow();
   });
 
   it("falls back to the configured back control when browser history is unavailable", async () => {
