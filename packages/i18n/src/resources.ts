@@ -114,6 +114,12 @@ export const zhCN = {
   flowFilter: "记录过滤表达式（可选）",
   flowFilterHint:
     "使用 {字段名}、白名单函数与比较/逻辑运算符；结果为假（空串/false/0）的记录被丢弃。",
+  flowSourceInfo: "记录来源信息（可选）",
+  flowSourceUrl: "来源网址（sourceUrl）",
+  flowSourcePage: "来源页码（sourcePage）",
+  flowSourceOrigin: "来源类型（sourceOrigin）",
+  flowSourceInfoHint:
+    "启用后每条记录附带来源字段：来源网址、页码与来源类型（list/nested）。保留字段名不可与提取字段重复。",
   flowSource: "流程脚本（JSON）",
   flowSourceHint: "这是可保存并执行的声明式流程。修改后点击应用脚本；当前不执行任意 JavaScript。",
   flowInvalidScript: "流程配置无效，请检查字段与上限",
@@ -257,6 +263,13 @@ export const zhCN = {
   configurationSaved: "实例配置已保存",
   enableInstance: "允许运行",
   enableInstanceDescription: "关闭后该实例不能被手动或定时任务触发",
+  watermarkTitle: "增量水位",
+  watermarkNone: "尚未记录，下一次运行将从第一条记录开始",
+  watermarkValue: "上次水位：{{value}}",
+  watermarkHint: "运行成功后自动记录，下一次增量采集从该值之后继续。",
+  clearWatermark: "清除水位",
+  clearWatermarkHint: "清除后下一次运行会重新采集全部记录。",
+  watermarkCleared: "水位已清除，下一次运行将从头采集",
   scriptFirst: "脚本优先 · AI 可选",
   foundation: "基础框架",
   studioEyebrow: "构建一次，自主运行",
@@ -501,6 +514,12 @@ export const enUS: Record<MessageKey, string> = {
   flowFilter: "Record filter expression (optional)",
   flowFilterHint:
     "Use {field}, whitelist functions and comparison/logical operators; records with a falsy result (empty string/false/0) are dropped.",
+  flowSourceInfo: "Record provenance (optional)",
+  flowSourceUrl: "Source URL (sourceUrl)",
+  flowSourcePage: "Source page (sourcePage)",
+  flowSourceOrigin: "Source origin (sourceOrigin)",
+  flowSourceInfoHint:
+    "Each record carries provenance fields when enabled: source URL, page number and origin (list/nested). Reserved names must not clash with extraction fields.",
   flowSource: "Workflow script (JSON)",
   flowSourceHint:
     "A saved, executable declarative workflow. Apply edits before saving; arbitrary JavaScript is not executed.",
@@ -657,6 +676,14 @@ export const enUS: Record<MessageKey, string> = {
   enableInstance: "Allow runs",
   enableInstanceDescription:
     "When disabled, manual and scheduled triggers cannot start this instance",
+  watermarkTitle: "Incremental watermark",
+  watermarkNone: "Not recorded yet; the next run starts from the first record",
+  watermarkValue: "Last watermark: {{value}}",
+  watermarkHint:
+    "Recorded automatically after a successful run; the next incremental run continues after it.",
+  clearWatermark: "Clear watermark",
+  clearWatermarkHint: "Clearing makes the next run collect all records again.",
+  watermarkCleared: "Watermark cleared; the next run collects from the start",
   scriptFirst: "Script first · AI optional",
   foundation: "Foundation",
   studioEyebrow: "BUILD ONCE. RUN INDEPENDENTLY.",

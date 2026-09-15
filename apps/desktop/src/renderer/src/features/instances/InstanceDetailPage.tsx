@@ -51,6 +51,7 @@ export function InstanceDetailPage({
   onAcceptRun,
   onRecordingChange,
   onUpdate,
+  onClearWatermark,
   onRun,
   onCancel,
   onNavigate,
@@ -65,6 +66,7 @@ export function InstanceDetailPage({
   onAcceptRun(run: Run): void;
   onRecordingChange(recording: boolean): void;
   onUpdate(input: InstanceUpdate): void;
+  onClearWatermark(): void;
   onRun(): void;
   onCancel(id: string): void;
   onNavigate(url: string): void;
@@ -543,6 +545,7 @@ export function InstanceDetailPage({
             workspace={workspace}
             disabled={disabled}
             onSave={onUpdate}
+            onClearWatermark={onClearWatermark}
           />
         )}
         {tab === "runs" && <RunsPage runs={instanceRuns} onCopyError={onCopyError} />}

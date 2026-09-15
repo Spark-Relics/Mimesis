@@ -553,6 +553,47 @@ describe("reusable collection interpreter", () => {
     );
   });
 
+  it("attaches provenance to list records and exposes it in the plan output", async () => {
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [],
+      extract: {
+        items: ".item",
+        fields: [{ name: "name", selector: ".name", attribute: "text", required: true }],
+      },
+      pagination: { next: ".next", maxPages: 3 },
+      source: { url: true, page: true, origin: true },
+    };
+    const { ctx } = fixture([[{ name: "A" }], [{ name: "B" }]]);
+    const result = await collectPages(ctx, { url: "https://example.com/list", workflow });
+    expect(result.records).toEqual([
+      { name: "A", sourceUrl: "https://example.com/0", sourcePage: 1, sourceOrigin: "list" },
+      { name: "B", sourceUrl: "https://example.com/1", sourcePage: 2, sourceOrigin: "list" },
+    ]);
+    expect(planWorkflow(workflow).output).toEqual([
+      "name",
+      "sourceUrl",
+      "sourcePage",
+      "sourceOrigin",
+    ]);
+  });
+
+  it("rejects a reserved provenance name that collides with an extraction field", () => {
+    const colliding: CollectionWorkflow = {
+      ...recipe,
+      extract: {
+        items: ".item",
+        fields: [{ name: "sourceUrl", selector: ".u", attribute: "text", required: true }],
+      },
+      source: { url: true },
+    };
+    expect(() => validateForPublish(colliding)).toThrow("INVALID_INPUT");
+    // Provenance is opt-in: enabling it changes published content identity.
+    expect(workflowDigest("https://example.com", { ...recipe, source: { url: true } })).not.toBe(
+      workflowDigest("https://example.com", recipe),
+    );
+  });
+
   it("aborts a page wait without subsequent actions or inspection", async () => {
     vi.useFakeTimers();
     const { ctx, controller, automation } = fixture([[]]);

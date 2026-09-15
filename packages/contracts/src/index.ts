@@ -209,6 +209,22 @@ export const collectionWorkflowSchema = z.strictObject({
       field: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/u),
     })
     .optional(),
+  /**
+   * Optional record provenance: each enabled key appends a reserved field to every
+   * record — `sourceUrl` (list page URL), `sourcePage` (1-based list page) and
+   * `sourceOrigin` ("list" | "nested"). Absent means no provenance. Reserved names
+   * must not collide with extraction fields (publish validation).
+   */
+  source: z
+    .strictObject({
+      url: z.boolean().optional(),
+      page: z.boolean().optional(),
+      origin: z.boolean().optional(),
+    })
+    .refine((value) => Boolean(value.url || value.page || value.origin), {
+      message: "source must enable at least one provenance field",
+    })
+    .optional(),
 });
 export type CollectionWorkflow = z.infer<typeof collectionWorkflowSchema>;
 /** Fixed input/output schema deterministically derived from an immutable workflow. */
@@ -252,6 +268,13 @@ export const automationInstanceSchema = z.object({
   updatedAt: z.string().datetime(),
   workflow: collectionWorkflowSchema.optional(),
   publishedVersionId: z.string().uuid().nullable().default(null),
+  /**
+   * High-water value produced by the last successful incremental run, fed back
+   * into the next run so collection continues where it stopped. Optional so a
+   * workspace migrated from older builds stays valid; only set when the bound
+   * workflow configures a watermark.
+   */
+  lastWatermark: z.string().max(16_000).optional(),
 });
 export type AutomationInstance = z.infer<typeof automationInstanceSchema>;
 
@@ -380,6 +403,8 @@ export const gatewayExecutionSchema = z.object({
   scriptVersion: z.string().min(1),
   parameters: workflowParametersSchema.optional(),
   binding: versionBindingSchema.nullable().default(null),
+  /** Previous watermark captured at submit time, so a queued job runs against a stable value. */
+  watermark: z.string().max(16_000).optional(),
 });
 export type GatewayExecution = z.infer<typeof gatewayExecutionSchema>;
 export const gatewayJobSchema = z.object({
@@ -480,6 +505,7 @@ export const requestSchema = z.discriminatedUnion("method", [
     id: z.string().uuid(),
     input: instanceUpdateSchema,
   }),
+  z.object({ method: z.literal("instances.watermark.clear"), id: z.string().uuid() }),
   z.object({
     method: z.literal("versions.publish"),
     instanceId: z.string().uuid(),
@@ -531,6 +557,7 @@ export interface DesktopBridge {
   selectProfile(id: string): Promise<void>;
   createInstance(name: string): Promise<AutomationInstance>;
   updateInstance(id: string, input: InstanceUpdate): Promise<AutomationInstance>;
+  clearWatermark(id: string): Promise<AutomationInstance>;
   saveWorkflow(
     instanceId: string,
     workflow: CollectionWorkflow,

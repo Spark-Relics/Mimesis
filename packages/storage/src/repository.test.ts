@@ -12,7 +12,7 @@ const profile = {
   createdAt: "2026-09-06T00:00:00.000Z",
 };
 const initial: StoredState = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   instances: [
     {
       id: "00000000-0000-4000-8000-000000000002",
@@ -72,7 +72,7 @@ it("backs up legacy source and preserves workflows while removing the obsolete l
 it("refuses unknown future formats and never overwrites a conflicting migration backup", async () => {
   const path = join(await mkdtemp(join(tmpdir(), "clawler-store-")), "workspace.json");
   const repository = { load: () => loadLegacy(path) };
-  await writeFile(path, JSON.stringify({ ...initial, schemaVersion: 5 }));
+  await writeFile(path, JSON.stringify({ ...initial, schemaVersion: 6 }));
   await expect(repository.load()).rejects.toThrow();
   const original = JSON.stringify({ ...initial, schemaVersion: 2 });
   await writeFile(path, original);
@@ -133,7 +133,7 @@ it("migrates a version 1 workspace into an instance-owned workspace", async () =
     "utf8",
   );
   const migrated = await loadLegacy(path);
-  expect(migrated?.schemaVersion).toBe(4);
+  expect(migrated?.schemaVersion).toBe(5);
   expect(migrated?.versions).toEqual([]);
   expect(migrated?.instances).toHaveLength(1);
   expect(migrated?.instances[0]?.profileId).toBe(profile.id);

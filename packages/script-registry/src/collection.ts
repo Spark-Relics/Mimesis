@@ -11,7 +11,7 @@ import {
 } from "@clawler/contracts";
 import type { BrowserAutomationPort, ScriptContext, ScriptInput } from "@clawler/script-sdk";
 import { evaluateExpression, evaluateFilter } from "./expression.js";
-import { dedupeKey, fieldNames, traversalNames } from "./fields.js";
+import { dedupeKey, fieldNames, sourceFieldNames, traversalNames } from "./fields.js";
 import { parameterNames, validateForPublish } from "./versions.js";
 
 /** One extracted record; field values become numbers/booleans only when a field declares a type. */
@@ -138,7 +138,7 @@ export function planWorkflow(input: CollectionWorkflow): WorkflowPlan {
   const workflow = validateForPublish(input);
   let detailFields: string[] = [];
   if (workflow.detail) detailFields = traversalNames(workflow.detail);
-  const output = [...fieldNames(workflow.extract), ...detailFields];
+  const output = [...fieldNames(workflow.extract), ...detailFields, ...sourceFieldNames(workflow)];
   if (new Set(output).size !== output.length) throw new AppError("INVALID_INPUT");
   let maxPages = 1;
   if (workflow.pagination) maxPages = workflow.pagination.maxPages;
@@ -297,6 +297,8 @@ export async function collectPages(
   let previousWatermark: string | undefined;
   if (watermarkField) previousWatermark = input.watermark;
   let watermark: string | undefined;
+  // Optional record provenance, applied when a row is admitted on its originating list page.
+  const source = workflow.source;
   const trackWatermark = (row: FieldRow): void => {
     if (!watermarkField) return;
     const raw = fieldValueText(row[watermarkField]);
@@ -338,8 +340,23 @@ export async function collectPages(
       workflow.extract.items,
     );
     pages++;
+    // Provenance is attached before admission so filters/dedupe can also reference it.
+    let pageUrl = input.url;
+    if (source?.url)
+      pageUrl = (await ctx.step("inspect", () => ctx.browser.inspect(ctx.signal))).url;
+    const decoratePage = (list: FieldRow[], origin: "list" | "nested"): FieldRow[] => {
+      if (!source) return list;
+      return list.map((row) => {
+        const next: FieldRow = { ...row };
+        if (source.url) next.sourceUrl = pageUrl;
+        if (source.page) next.sourcePage = pages;
+        if (source.origin) next.sourceOrigin = origin;
+        return next;
+      });
+    };
+    const pageRows = decoratePage(rows, "list");
     let added = 0;
-    for (const row of rows) {
+    for (const row of pageRows) {
       const result = admitRecord(workflow, row, records, seen, bytes, previousWatermark);
       bytes = result.bytes;
       if (result.limit) {
@@ -359,8 +376,16 @@ export async function collectPages(
       stopReason: stopReason as CollectionBudget["stopReason"],
     };
     detailCapped =
-      (await traverseDetails(ctx, browser, workflow, rows, records, budget, previousWatermark)) ||
-      detailCapped;
+      (await traverseDetails(
+        ctx,
+        browser,
+        workflow,
+        pageRows,
+        records,
+        budget,
+        previousWatermark,
+        decoratePage,
+      )) || detailCapped;
     bytes = budget.bytes;
     if (budget.stopReason === "record-limit") {
       stopReason = "record-limit";
@@ -432,6 +457,8 @@ async function traverseDetails(
   records: FieldRow[],
   budget: CollectionBudget,
   previousWatermark: string | undefined,
+  /** Attaches provenance to nested rows using the originating list page's URL/number. */
+  decoratePage: (rows: FieldRow[], origin: "list" | "nested") => FieldRow[],
 ): Promise<boolean> {
   const detail = workflow.detail;
   if (!detail) return false;
@@ -466,11 +493,12 @@ async function traverseDetails(
         },
         rowsExtraction.items,
       );
-      if (nested.length) {
+      const nestedRows = decoratePage(nested, "nested");
+      if (nestedRows.length) {
         const child = detail.children;
         if (child) {
           // Nested rows must land in the dataset first so child merges have targets.
-          for (const row of nested) {
+          for (const row of nestedRows) {
             const result = admitRecord(
               workflow,
               row,
@@ -490,14 +518,15 @@ async function traverseDetails(
               ctx,
               browser,
               { ...workflow, extract: rowsExtraction, detail: child },
-              nested,
+              nestedRows,
               records,
               budget,
               previousWatermark,
+              decoratePage,
             );
           }
         } else {
-          for (const row of nested) {
+          for (const row of nestedRows) {
             const result = admitRecord(
               workflow,
               row,

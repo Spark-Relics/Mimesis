@@ -65,6 +65,16 @@ export function CollectionEditor({
     if (entry) before.splice(index + offset, 0, entry);
     onChange({ ...workflow, before });
   }
+  function toggleSource(key: "url" | "page" | "origin", enabled: boolean) {
+    const next: NonNullable<CollectionWorkflow["source"]> = { ...workflow.source };
+    if (enabled) next[key] = true;
+    else delete next[key];
+    const result = { ...workflow };
+    // No enabled keys means no provenance, so the key is dropped instead of left empty.
+    if (next.url || next.page || next.origin) result.source = next;
+    else delete result.source;
+    onChange(result);
+  }
   return (
     <div className="collection-editor">
       <section className="workflow-section">
@@ -415,6 +425,37 @@ export function CollectionEditor({
             <span className="workflow-hint">{t("flowFilterHint")}</span>
           </label>
         </div>
+        <p className="workflow-hint">{t("flowSourceInfo")}</p>
+        <div className="workflow-form-row">
+          <label className="workflow-check">
+            <input
+              type="checkbox"
+              checked={Boolean(workflow.source?.url)}
+              disabled={disabled}
+              onChange={(event) => toggleSource("url", event.target.checked)}
+            />
+            {t("flowSourceUrl")}
+          </label>
+          <label className="workflow-check">
+            <input
+              type="checkbox"
+              checked={Boolean(workflow.source?.page)}
+              disabled={disabled}
+              onChange={(event) => toggleSource("page", event.target.checked)}
+            />
+            {t("flowSourcePage")}
+          </label>
+          <label className="workflow-check">
+            <input
+              type="checkbox"
+              checked={Boolean(workflow.source?.origin)}
+              disabled={disabled}
+              onChange={(event) => toggleSource("origin", event.target.checked)}
+            />
+            {t("flowSourceOrigin")}
+          </label>
+        </div>
+        <p className="workflow-hint">{t("flowSourceInfoHint")}</p>
       </section>
       <section className="workflow-section">
         <div className="workflow-section-title">

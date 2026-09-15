@@ -8,7 +8,7 @@ import {
 
 export const stateSchema = z
   .object({
-    schemaVersion: z.literal(4),
+    schemaVersion: z.literal(5),
     instances: z.array(automationInstanceSchema),
     profiles: z.array(profileSchema).min(1),
     selectedProfileId: z.string().uuid(),

@@ -88,7 +88,7 @@ export class WorkspaceService {
         publishedVersionId: null,
       };
       state = {
-        schemaVersion: 4,
+        schemaVersion: 5,
         instances: [instance],
         profiles: [profile],
         selectedProfileId: profile.id,
@@ -115,6 +115,14 @@ export class WorkspaceService {
 
   private recordRun(run: Run): void {
     this.state.runs = [run, ...this.state.runs.filter((entry) => entry.id !== run.id)].slice(0, 50);
+    // A successful incremental run advances the instance watermark so the next run resumes past it.
+    if (run.status === "succeeded") {
+      const watermark = run.result?.collection?.watermark;
+      if (watermark !== undefined) {
+        const instance = this.state.instances.find((entry) => entry.id === run.instanceId);
+        if (instance) instance.lastWatermark = watermark;
+      }
+    }
     this.pendingRunSave = this.repository.save(this.state);
     void this.pendingRunSave.catch(() => {
       this.storageFailed = true;
@@ -163,6 +171,8 @@ export class WorkspaceService {
       scriptVersion: script.manifest.version,
       binding,
       ...(submission.parameters && { parameters: submission.parameters }),
+      // Snapshot the watermark at submit time so a queued job runs against a stable value.
+      ...(instance.lastWatermark !== undefined && { watermark: instance.lastWatermark }),
     };
   }
 
@@ -211,6 +221,7 @@ export class WorkspaceService {
             url: instance.targetUrl,
             workflow: binding.workflow,
             ...(execution.parameters && { parameters: execution.parameters }),
+            ...(execution.watermark !== undefined && { watermark: execution.watermark }),
           },
           profile.id,
           instance.id,
@@ -351,6 +362,24 @@ export class WorkspaceService {
           targetUrl,
           updatedAt: new Date().toISOString(),
         };
+        await this.updateState({
+          ...this.state,
+          instances: this.state.instances.map((entry) => {
+            if (entry.id === instance.id) return instance;
+            return entry;
+          }),
+        });
+        return instance;
+      }
+      case "instances.watermark.clear": {
+        this.assertIdle();
+        if (this.host.recorder.active) throw new AppError("BUSY");
+        const current = this.state.instances.find((entry) => entry.id === request.id);
+        if (!current) throw new AppError("NOT_FOUND");
+        // Clearing the watermark makes the next run start from the beginning again.
+        const instance: AutomationInstance = { ...current };
+        delete instance.lastWatermark;
+        instance.updatedAt = new Date().toISOString();
         await this.updateState({
           ...this.state,
           instances: this.state.instances.map((entry) => {
@@ -516,6 +545,7 @@ export class WorkspaceService {
               url: binding.targetUrl,
               workflow: binding.workflow,
               ...(request.parameters && { parameters: request.parameters }),
+              ...(instance.lastWatermark !== undefined && { watermark: instance.lastWatermark }),
             },
             instance.profileId,
             instance.id,

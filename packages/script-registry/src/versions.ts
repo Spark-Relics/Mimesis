@@ -10,7 +10,7 @@ import {
   workflowVersionSchema,
 } from "@clawler/contracts";
 import { filterFieldNames } from "./expression.js";
-import { outputFieldNames } from "./fields.js";
+import { fieldNames, outputFieldNames, sourceFieldNames, traversalNames } from "./fields.js";
 
 const placeholder = /\{\{([^{}]*)\}\}/gu;
 /** Captured response bodies are referenced as `{{response:name}}`, never as run parameters. */
@@ -75,6 +75,13 @@ export function validateForPublish(input: unknown): CollectionWorkflow {
   }
   if (workflow.watermark && !outputFieldNames(workflow).has(workflow.watermark.field))
     throw new AppError("INVALID_INPUT");
+  const sourceNames = sourceFieldNames(workflow);
+  if (sourceNames.length) {
+    // Reserved provenance names must not shadow a configured extraction field.
+    const extraction = new Set(fieldNames(workflow.extract));
+    if (workflow.detail) for (const name of traversalNames(workflow.detail)) extraction.add(name);
+    for (const name of sourceNames) if (extraction.has(name)) throw new AppError("INVALID_INPUT");
+  }
   for (const action of workflow.before) {
     if (action.kind !== "request") continue;
     // Duplicate capture names would silently overwrite earlier responses.

@@ -4,6 +4,7 @@ import {
   DEMO_URL,
   profileSchema,
   runSchema,
+  workflowVersionSchema,
   z,
 } from "@clawler/contracts";
 import { type StoredState, stateSchema } from "./state";
@@ -24,19 +25,34 @@ const versionThreeSchema = z.object({
   runs: z.array(runSchema).max(50),
 });
 
+/** Version 4 carries immutable published versions. Version 5 adds the per-instance watermark. */
+const versionFourSchema = z.object({
+  schemaVersion: z.literal(4),
+  profiles: z.array(profileSchema).min(1),
+  selectedProfileId: z.string().uuid(),
+  instances: z.array(automationInstanceSchema),
+  runs: z.array(runSchema).max(50),
+  versions: z.array(workflowVersionSchema).max(500),
+});
+
 /**
- * Historical formats are confined here; current services only see version 4.
+ * Historical formats are confined here; current services only see version 5.
  * Version 4 adds immutable published workflow versions, so every older workspace
  * starts with an empty version set and an unbound (never published) instance.
+ * Version 5 adds the optional per-instance incremental watermark.
  */
 export function decodeState(input: unknown): StoredState {
   const version = z.object({ schemaVersion: z.number().int() }).parse(input).schemaVersion;
-  if (version === 4) return stateSchema.parse(input);
+  if (version === 5) return stateSchema.parse(input);
+  if (version === 4) {
+    const migrated = versionFourSchema.parse(input);
+    return stateSchema.parse({ ...migrated, schemaVersion: 5 });
+  }
   if (version === 3) {
     const { instances, ...rest } = versionThreeSchema.parse(input);
     return stateSchema.parse({
       ...rest,
-      schemaVersion: 4,
+      schemaVersion: 5,
       instances: instances.map((instance) => ({ ...instance, publishedVersionId: null })),
       versions: [],
     });
@@ -74,7 +90,7 @@ export function decodeState(input: unknown): StoredState {
   return stateSchema.parse({
     profiles: legacy.profiles,
     selectedProfileId: legacy.selectedProfileId,
-    schemaVersion: 4,
+    schemaVersion: 5,
     instances: instances.map((instance) => ({ ...instance, publishedVersionId: null })),
     runs,
     versions: [],

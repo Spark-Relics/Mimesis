@@ -9,17 +9,22 @@ export function InstanceConfiguration({
   workspace,
   disabled,
   onSave,
+  onClearWatermark,
 }: {
   instance: AutomationInstance;
   workspace: WorkspaceSnapshot;
   disabled: boolean;
   onSave(input: InstanceUpdate): void;
+  onClearWatermark(): void;
 }) {
   const { t } = useI18n();
   const [name, setName] = useState(instance.name);
   const [targetUrl, setTargetUrl] = useState(instance.targetUrl);
   const [profileId, setProfileId] = useState(instance.profileId);
   const [enabled, setEnabled] = useState(instance.enabled);
+  let watermarkLabel = t("watermarkNone");
+  if (instance.lastWatermark !== undefined)
+    watermarkLabel = t("watermarkValue", { value: instance.lastWatermark });
   return (
     <Panel className="instance-config-panel">
       <div className="instance-section-heading">
@@ -86,6 +91,27 @@ export function InstanceConfiguration({
           </Button>
         </div>
       </form>
+      {instance.workflow?.watermark && (
+        <div className="instance-watermark">
+          <div className="instance-section-heading">
+            <div>
+              <strong>{t("watermarkTitle")}</strong>
+              <p>{t("watermarkHint")}</p>
+            </div>
+          </div>
+          <p className="workflow-muted">{watermarkLabel}</p>
+          {instance.lastWatermark !== undefined && (
+            <>
+              <div className="instance-config-actions">
+                <Button disabled={disabled} onClick={onClearWatermark}>
+                  {t("clearWatermark")}
+                </Button>
+              </div>
+              <p className="workflow-muted">{t("clearWatermarkHint")}</p>
+            </>
+          )}
+        </div>
+      )}
     </Panel>
   );
 }

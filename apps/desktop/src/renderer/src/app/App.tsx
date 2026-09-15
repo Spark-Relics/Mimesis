@@ -91,6 +91,13 @@ function WorkspaceContent({
             setNotice("configurationSaved");
           });
         }}
+        onClearWatermark={() => {
+          void action(async () => {
+            await bridge.clearWatermark(selectedInstance.id);
+            await refresh();
+            setNotice("watermarkCleared");
+          });
+        }}
         onRun={() => runInstance(selectedInstance)}
         onCancel={(id) => {
           void action(async () => {

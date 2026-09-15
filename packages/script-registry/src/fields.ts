@@ -12,10 +12,22 @@ export function traversalNames(node: DetailTraversal): string[] {
   return [...fieldNames(node.extract), ...rows, ...nested];
 }
 
-/** All output field names of a workflow: list fields, then detail traversal fields. */
+/** Reserved provenance field names contributed by `source`, in stable output order. */
+export function sourceFieldNames(workflow: CollectionWorkflow): string[] {
+  const source = workflow.source;
+  if (!source) return [];
+  const names: string[] = [];
+  if (source.url) names.push("sourceUrl");
+  if (source.page) names.push("sourcePage");
+  if (source.origin) names.push("sourceOrigin");
+  return names;
+}
+
+/** All output field names of a workflow: list fields, then detail traversal fields, then provenance. */
 export function outputFieldNames(workflow: CollectionWorkflow): Set<string> {
   const names = new Set(fieldNames(workflow.extract));
   if (workflow.detail) for (const name of traversalNames(workflow.detail)) names.add(name);
+  for (const name of sourceFieldNames(workflow)) names.add(name);
   return names;
 }
 

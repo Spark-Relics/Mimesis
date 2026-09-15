@@ -10,7 +10,7 @@ import { type StoredState, stateSchema } from "./state";
 
 function workspace(): StoredState {
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     profiles: [
       {
         id: execution.instance.profileId,
@@ -97,6 +97,29 @@ it("round trips immutable published versions and the version each run executed",
   });
 });
 
+it("round trips an instance incremental watermark and keeps an unset one absent", async (context) => {
+  const { db } = await database(context);
+  const base = workspace();
+  const instance = base.instances[0];
+  if (!instance) throw new Error("Missing fixture");
+  const advanced = { ...instance, lastWatermark: "2026-09-15" };
+  db.dispatch({
+    method: "initialize",
+    workspace: { ...base, instances: [advanced] },
+    gateway: null,
+  });
+  const loaded = db.dispatch({ method: "workspace.load" }) as StoredState;
+  expect(loaded.instances[0]?.lastWatermark).toBe("2026-09-15");
+  // Clearing the watermark must drop the column back to NULL, not leave a stringified null.
+  db.dispatch({
+    method: "workspace.save",
+    state: { ...base, instances: [{ ...advanced, lastWatermark: undefined }] },
+  });
+  const cleared = db.dispatch({ method: "workspace.load" }) as StoredState;
+  expect(cleared.instances[0]).not.toHaveProperty("lastWatermark");
+  expect(cleared).toEqual(stateSchema.parse({ ...base, instances: [instance] }));
+});
+
 it("upgrades a database written before version binding without losing runs", async () => {
   const root = await mkdtemp(join(tmpdir(), "mimesis-upgrade-"));
   const file = join(root, "runtime.sqlite");
@@ -108,6 +131,7 @@ it("upgrades a database written before version binding without losing runs", asy
   legacy.exec("DROP TABLE workflow_versions");
   legacy.exec("ALTER TABLE runs DROP COLUMN workflowVersionId");
   legacy.exec("ALTER TABLE instances DROP COLUMN publishedVersionId");
+  legacy.exec("ALTER TABLE instances DROP COLUMN lastWatermark");
   legacy.exec("ALTER TABLE steps DROP COLUMN detail");
   legacy.exec("ALTER TABLE steps DROP COLUMN errorCode");
   legacy.exec("PRAGMA user_version=1");

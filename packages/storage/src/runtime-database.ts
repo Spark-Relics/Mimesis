@@ -11,7 +11,7 @@ import { type StoredState, stateSchema } from "./state";
 
 const applicationId = 0x4d494d45;
 /** Current on-disk schema. Bumped only together with an entry in versionUpgrades. */
-const schemaVersion = 4;
+const schemaVersion = 5;
 const versionsTable = `CREATE TABLE workflow_versions (id TEXT PRIMARY KEY, instanceId TEXT NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
   version INTEGER NOT NULL CHECK(version>=1), digest TEXT NOT NULL, targetUrl TEXT NOT NULL, workflow TEXT NOT NULL,
   note TEXT NOT NULL, publishedAt TEXT NOT NULL, position INTEGER NOT NULL, UNIQUE(instanceId,version)) STRICT;
@@ -21,13 +21,14 @@ const versionUpgrades = [
   `ALTER TABLE instances ADD COLUMN publishedVersionId TEXT;\n${versionsTable}`,
   `ALTER TABLE runs ADD COLUMN workflowVersionId TEXT;`,
   `ALTER TABLE steps ADD COLUMN detail TEXT;\nALTER TABLE steps ADD COLUMN errorCode TEXT;`,
+  `ALTER TABLE instances ADD COLUMN lastWatermark TEXT;`,
 ];
 const schema = `
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
 CREATE TABLE profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, createdAt TEXT NOT NULL, position INTEGER NOT NULL) STRICT;
 CREATE TABLE instances (id TEXT PRIMARY KEY, name TEXT NOT NULL, scriptId TEXT NOT NULL, profileId TEXT NOT NULL REFERENCES profiles(id),
   targetUrl TEXT NOT NULL, enabled INTEGER NOT NULL CHECK(enabled IN (0,1)), createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL,
-  workflow TEXT, publishedVersionId TEXT, position INTEGER NOT NULL) STRICT;
+  workflow TEXT, publishedVersionId TEXT, lastWatermark TEXT, position INTEGER NOT NULL) STRICT;
 ${versionsTable}
 CREATE TABLE runs (id TEXT PRIMARY KEY, instanceId TEXT NOT NULL, scriptId TEXT NOT NULL, version TEXT NOT NULL, profileId TEXT NOT NULL,
   status TEXT NOT NULL CHECK(status IN ('running','succeeded','failed','cancelled')), startedAt TEXT NOT NULL, finishedAt TEXT, result TEXT, errorCode TEXT, workflowVersionId TEXT) STRICT;
@@ -188,6 +189,8 @@ export class RuntimeDatabase {
         ...instance,
         enabled: Number(instance.enabled),
         workflow: json(instance.workflow),
+        // SQLite columns accept NULL, not undefined, for an unset watermark.
+        lastWatermark: instance.lastWatermark ?? null,
         position,
       });
     });
@@ -233,6 +236,8 @@ export class RuntimeDatabase {
       delete value.position;
       delete value.workflow;
       if (row.workflow !== null) value.workflow = parseJson(row.workflow);
+      // An unset watermark is stored as NULL; the instance field is optional, not nullable.
+      if (row.lastWatermark === null) delete value.lastWatermark;
       return value;
     });
     const runs = (
@@ -247,7 +252,7 @@ export class RuntimeDatabase {
       return value;
     });
     return stateSchema.parse({
-      schemaVersion: 4,
+      schemaVersion: 5,
       profiles,
       instances,
       runs,
