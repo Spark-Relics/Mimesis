@@ -1,4 +1,5 @@
 import type {
+  CollectionRecord,
   CollectionWorkflow,
   DocumentSnapshot,
   Extraction,
@@ -9,7 +10,7 @@ import type {
 
 export interface BrowserAutomationPort {
   act(action: WorkflowAction, timeoutMs: number, signal: AbortSignal): Promise<void>;
-  extract(input: Extraction, signal: AbortSignal): Promise<Array<Record<string, string>>>;
+  extract(input: Extraction, signal: AbortSignal): Promise<CollectionRecord[]>;
   /** Presence check used both for pagination and for `when.exists` conditions. */
   exists(selector: string, signal: AbortSignal): Promise<boolean>;
   /** Records the current list items so `actOnItem` can address one of them by index. Returns the count. */

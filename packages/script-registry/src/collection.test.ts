@@ -871,6 +871,66 @@ describe("reusable collection interpreter", () => {
     );
   });
 
+  it("converts declared field types after expressions and failures fail the step", async () => {
+    vi.useFakeTimers();
+    const { ctx } = fixture([[{ name: "Cedar", price: " 18.50 ", active: "TRUE", rank: "2" }]]);
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [],
+      pagination: null,
+      extract: {
+        items: ".item",
+        fields: [
+          { name: "name", selector: ".name", attribute: "text", required: true },
+          { name: "price", selector: ".price", attribute: "text", required: true, type: "number" },
+          {
+            name: "active",
+            selector: ".active",
+            attribute: "text",
+            required: true,
+            type: "boolean",
+          },
+          { name: "rank", selector: ".rank", attribute: "text", required: true, type: "number" },
+          {
+            name: "label",
+            selector: ".name",
+            attribute: "text",
+            required: false,
+            expression: "concat({name}, '#', {rank})",
+          },
+        ],
+      },
+    };
+    const pending = collectPages(ctx, { url: "https://example.com", workflow });
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    expect(result.records).toEqual([
+      { name: "Cedar", price: 18.5, active: true, rank: 2, label: "Cedar#2" },
+    ]);
+  });
+
+  it("rejects unparseable number fields as a step failure", async () => {
+    vi.useFakeTimers();
+    const { ctx } = fixture([[{ name: "Cedar", price: "N/A" }]]);
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [],
+      pagination: null,
+      extract: {
+        items: ".item",
+        fields: [
+          { name: "name", selector: ".name", attribute: "text", required: true },
+          { name: "price", selector: ".price", attribute: "text", required: true, type: "number" },
+        ],
+      },
+    };
+    const rejection = collectPages(ctx, { url: "https://example.com", workflow }).catch(
+      (error: unknown) => error,
+    );
+    await vi.runAllTimersAsync();
+    await expect(rejection).resolves.toBeInstanceOf(AppError);
+  });
+
   it("falls back to the configured back control when browser history is unavailable", async () => {
     vi.useFakeTimers();
     const { ctx, automation } = fixture([[{ name: "Cedar" }]]);

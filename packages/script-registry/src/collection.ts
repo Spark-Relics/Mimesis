@@ -1,5 +1,6 @@
 import {
   AppError,
+  type CollectionRecord,
   type CollectionWorkflow,
   collectionWorkflowSchema,
   type DocumentSnapshot,
@@ -13,6 +14,10 @@ import { evaluateExpression, evaluateFilter } from "./expression.js";
 import { dedupeKey, fieldNames, traversalNames } from "./fields.js";
 import { parameterNames, validateForPublish } from "./versions.js";
 
+/** One extracted record; field values become numbers/booleans only when a field declares a type. */
+export type CollectionRecordValue = string | number | boolean;
+type FieldRow = Record<string, CollectionRecordValue>;
+
 /** Normalizes one field value; `collapse` also squashes inner whitespace runs. */
 function normalizeValue(value: string, mode: "trim" | "collapse" | "upper" | "lower"): string {
   if (mode === "upper") return value.toUpperCase();
@@ -22,33 +27,60 @@ function normalizeValue(value: string, mode: "trim" | "collapse" | "upper" | "lo
 }
 
 /** Per-row bad-record gate: with missing:"row" an incomplete record is dropped here, not in the page. */
-function dropIncompleteRows(
-  extraction: Extraction,
-  rows: Array<Record<string, string>>,
-): Array<Record<string, string>> {
+function dropIncompleteRows(extraction: Extraction, rows: CollectionRecord[]): CollectionRecord[] {
   if (extraction.missing !== "row") return rows;
   return rows.filter((row) =>
     extraction.fields.every((field) => !field.required || row[field.name]),
   );
 }
 
+/**
+ * Coerces declared field types after expressions: string (default) keeps the value,
+ * number requires a finite parse (empty string fails), boolean accepts the literals
+ * true/false (case-insensitive) and 1/0. Any failure fails the step with INVALID_INPUT.
+ */
+function applyTypes(extraction: Extraction, rows: CollectionRecord[]): FieldRow[] {
+  const typed = extraction.fields.filter((field) => field.type && field.type !== "string");
+  if (!typed.length) return rows;
+  return rows.map((row) => {
+    const next: FieldRow = { ...row };
+    for (const field of typed) {
+      const value = row[field.name];
+      // Browser extraction yields strings; any non-string only arrives in unit fixtures.
+      let raw: string;
+      if (typeof value === "string") raw = value;
+      else if (value === undefined) raw = "";
+      else raw = String(value);
+      if (field.type === "number") {
+        const parsed = Number(raw);
+        if (raw.trim() === "" || !Number.isFinite(parsed)) throw new AppError("INVALID_INPUT");
+        next[field.name] = parsed;
+      } else if (field.type === "boolean") {
+        const text = raw.trim().toLowerCase();
+        if (text === "true" || text === "1") next[field.name] = true;
+        else if (text === "false" || text === "0") next[field.name] = false;
+        else throw new AppError("INVALID_INPUT");
+      }
+    }
+    return next;
+  });
+}
+
 /** Applies per-field normalization (first) then expression fields (second) in place. */
-function applyExpressions(
-  extraction: Extraction,
-  rows: Array<Record<string, string>>,
-): Array<Record<string, string>> {
+function applyExpressions(extraction: Extraction, rows: CollectionRecord[]): FieldRow[] {
   const kept = dropIncompleteRows(extraction, rows);
   for (const field of extraction.fields) {
     if (field.normalize && field.normalize !== "none") {
       for (const row of kept) {
         const value = row[field.name];
-        if (value !== undefined) row[field.name] = normalizeValue(value, field.normalize);
+        // Browser extraction yields strings; any non-string only arrives in unit fixtures.
+        if (typeof value === "string") row[field.name] = normalizeValue(value, field.normalize);
       }
     }
     if (!field.expression) continue;
     for (const row of kept) row[field.name] = evaluateExpression(field.expression, row);
   }
-  return kept;
+  return applyTypes(extraction, kept);
 }
 
 export function resolveWorkflow(
@@ -137,7 +169,7 @@ async function pause(signal: AbortSignal): Promise<void> {
 }
 
 /** A configured record filter: falsy results drop the record before dedupe/budget. */
-function passesFilter(workflow: CollectionWorkflow, row: Record<string, string>): boolean {
+function passesFilter(workflow: CollectionWorkflow, row: FieldRow): boolean {
   if (!workflow.filter) return true;
   return evaluateFilter(workflow.filter, row);
 }
@@ -145,8 +177,8 @@ function passesFilter(workflow: CollectionWorkflow, row: Record<string, string>)
 /** Shared admission gate for a candidate record: filter, dedupe, then record/byte budget. */
 function admitRecord(
   workflow: CollectionWorkflow,
-  row: Record<string, string>,
-  records: Array<Record<string, string>>,
+  row: FieldRow,
+  records: FieldRow[],
   seen: Set<string>,
   bytes: number,
 ): { admitted: boolean; bytes: number; limit: boolean } {
@@ -223,7 +255,7 @@ export async function collectPages(
     if (action.onError === "skip") await ctx.attempt(action.kind, act, label);
     else await ctx.step(action.kind, act, label);
   }
-  const records: Array<Record<string, string>> = [];
+  const records: FieldRow[] = [];
   const seen = new Set<string>();
   let signature: string | undefined;
   let previousUrl: string | undefined;
@@ -345,8 +377,8 @@ async function traverseDetails(
   ctx: ScriptContext,
   browser: BrowserAutomationPort,
   workflow: CollectionWorkflow,
-  rows: Array<Record<string, string>>,
-  records: Array<Record<string, string>>,
+  rows: FieldRow[],
+  records: FieldRow[],
   budget: CollectionBudget,
 ): Promise<boolean> {
   const detail = workflow.detail;
@@ -456,7 +488,7 @@ async function extractFirst(
   browser: BrowserAutomationPort,
   extraction: Extraction,
   waitTimeoutMs: number,
-): Promise<Record<string, string>> {
+): Promise<FieldRow> {
   return ctx.step(
     "extract",
     async () => {

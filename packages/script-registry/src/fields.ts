@@ -25,7 +25,10 @@ export function outputFieldNames(workflow: CollectionWorkflow): Set<string> {
  * keeps cross-extraction keys meaningful (a list row shares no fields with a
  * nested detail row).
  */
-export function dedupeKey(record: Record<string, string>, fields: string[]): string {
+export function dedupeKey(
+  record: Record<string, string | number | boolean>,
+  fields: string[],
+): string {
   if (!fields.length) return JSON.stringify(record);
   const values = fields.map((name) => [name, record[name]] as const);
   if (!values.some(([, value]) => value !== undefined)) return JSON.stringify(record);

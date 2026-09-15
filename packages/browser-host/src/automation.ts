@@ -1,5 +1,6 @@
 import {
   AppError,
+  type CollectionRecord,
   collectionRecordsSchema,
   type Extraction,
   extractionSchema,
@@ -291,7 +292,7 @@ export class BrowserAutomation implements BrowserAutomationPort {
     }
   }
 
-  async extract(input: Extraction, signal: AbortSignal): Promise<Array<Record<string, string>>> {
+  async extract(input: Extraction, signal: AbortSignal): Promise<CollectionRecord[]> {
     const extraction = extractionSchema.parse(input);
     const contents = this.contents();
     signal.throwIfAborted();

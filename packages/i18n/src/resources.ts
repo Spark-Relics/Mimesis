@@ -75,6 +75,9 @@ export const zhCN = {
   flowNormalize: "标准化",
   flowNormalizeHint:
     "提取后、表达式计算前处理字段值：trim 去首尾空白，collapse 去首尾并把连续空白折叠为单个空格，upper/lower 转大小写。",
+  flowFieldType: "输出类型",
+  flowFieldTypeHint:
+    "表达式计算后转换为该类型：number 要求可解析的有限数字，boolean 接受 true/false（不区分大小写）与 1/0；转换失败记为步骤失败。缺省为字符串。",
   flowAddField: "添加字段",
   flowMissing: "坏记录策略",
   flowMissingPage: "整页（默认）",
@@ -454,6 +457,9 @@ export const enUS: Record<MessageKey, string> = {
   flowNormalize: "Normalize",
   flowNormalizeHint:
     "Applied after extraction, before expressions: trim removes outer whitespace, collapse also squashes inner whitespace runs to single spaces, upper/lower change case.",
+  flowFieldType: "Output type",
+  flowFieldTypeHint:
+    "Converted after expressions: number requires a finite numeric value, boolean accepts true/false (case-insensitive) or 1/0; a failed conversion fails the step. Defaults to string.",
   flowAddField: "Add field",
   flowMissing: "Bad-record policy",
   flowMissingPage: "Whole page (default)",

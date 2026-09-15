@@ -130,6 +130,8 @@ export const extractionSchema = z
           required: z.boolean(),
           /** Value normalization applied after extraction, before any expression. Absent means none. */
           normalize: z.enum(["none", "trim", "collapse", "upper", "lower"]).optional(),
+          /** Output value type applied after expressions, before the record joins the dataset. Absent means string. */
+          type: z.enum(["string", "number", "boolean"]).optional(),
           /** Restricted expression evaluated after extraction; overrides the selector value. */
           expression: z.string().max(1000).optional(),
         }),
@@ -224,8 +226,9 @@ export const workflowParametersSchema = z
   .record(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/u), z.string().max(8000))
   .refine((params) => Object.keys(params).length <= 20);
 export const collectionRecordsSchema = z
-  .array(z.record(z.string(), z.string().max(16_000)))
+  .array(z.record(z.string(), z.union([z.string().max(16_000), z.number(), z.boolean()])))
   .max(2000);
+export type CollectionRecord = z.infer<typeof collectionRecordsSchema>[number];
 
 export const automationInstanceSchema = z.object({
   id: z.string().uuid(),

@@ -265,12 +265,13 @@ function parseExpression(tokens: Token[]): Node {
   return root;
 }
 
-function evaluate(node: Node, record: Record<string, string>): ExpressionValue {
+function evaluate(node: Node, record: ExpressionRecord): ExpressionValue {
   if (node.kind === "literal") return node.value;
   if (node.kind === "field") {
     const value = record[node.name];
-    if (typeof value !== "string") throw new AppError("INVALID_INPUT");
-    return value;
+    if (typeof value === "string") return value;
+    if (typeof value === "number" || typeof value === "boolean") return value;
+    throw new AppError("INVALID_INPUT");
   }
   if (node.kind === "unary") {
     const operand = evaluate(node.operand, record);
@@ -327,12 +328,14 @@ function toNumber(value: ExpressionValue): number {
 
 const parsedCache = new Map<string, Node>();
 
-export function evaluateExpression(source: string, record: Record<string, string>): string {
+export type ExpressionRecord = Record<string, string | number | boolean | undefined>;
+
+export function evaluateExpression(source: string, record: ExpressionRecord): string {
   return toText(evaluatePredicateValue(source, record));
 }
 
 /** Parses (with a small cache) and evaluates a restricted expression to its raw value. */
-function evaluatePredicateValue(source: string, record: Record<string, string>): ExpressionValue {
+function evaluatePredicateValue(source: string, record: ExpressionRecord): ExpressionValue {
   if (source.length > MAX_SOURCE_LENGTH) throw new AppError("INVALID_INPUT");
   let root = parsedCache.get(source);
   if (!root) {
@@ -344,7 +347,7 @@ function evaluatePredicateValue(source: string, record: Record<string, string>):
 }
 
 /** Record filter predicate: throws on parse errors, coerces the result to a boolean. */
-export function evaluateFilter(source: string, record: Record<string, string>): boolean {
+export function evaluateFilter(source: string, record: ExpressionRecord): boolean {
   return toBoolean(evaluatePredicateValue(source, record));
 }
 
