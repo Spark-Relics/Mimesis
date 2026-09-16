@@ -92,7 +92,9 @@ describe("local HTTP gateway", () => {
       { resolve: () => execution, execute: async () => completedRun() },
       { fetch: (async () => new Response("no", { status: 503 })) as unknown as typeof fetch },
     );
-    const server = await GatewayServer.listen({ token, port: 0 }, queue, () => [execution.instance]);
+    const server = await GatewayServer.listen({ token, port: 0 }, queue, () => [
+      execution.instance,
+    ]);
     resources.push({ queue, server });
     const submitJob = async (body: unknown) =>
       (

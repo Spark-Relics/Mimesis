@@ -4,15 +4,18 @@ import {
   DEMO_URL,
   DETAIL_DEMO_URL,
   documentSchema,
+  type PageStructure,
   type Profile,
+  structureSchema,
   validateNavigationUrl,
   z,
 } from "@clawler/contracts";
 import type { BrowserPort } from "@clawler/script-sdk";
-import { type BrowserWindow, session, WebContentsView } from "electron";
+import { type BrowserWindow, session, type WebContents, WebContentsView } from "electron";
 import { BrowserAutomation } from "./automation";
 import { demoPage, detailListPage, detailPages } from "./demo-page";
 import { HttpHost } from "./http";
+import { highlightElements, observeStructure } from "./observe-script";
 import { BrowserRecorder } from "./recorder";
 
 export { HttpHost };
@@ -27,9 +30,21 @@ const hiddenScrollbarCss = `
   * { scrollbar-width: none !important; }
   *::-webkit-scrollbar { width: 0 !important; height: 0 !important; display: none !important; }
 `;
+/**
+ * Injected into every embedded page so highlight markers set by
+ * `highlightElements` become visible. The attribute lives in the page, so the
+ * outline style must live there too — the renderer's own stylesheet cannot
+ * reach the embedded browser.
+ */
+const highlightCss = `
+  [data-clawler-highlight] {
+    outline: 2px solid #187b66 !important;
+    outline-offset: 2px !important;
+    background-color: rgba(24, 123, 102, 0.08) !important;
+  }
+`;
 const configuredProfiles = new Set<string>();
 
-/** Every page the local demo protocol serves; anything else is a hard 404. */
 const demoPages = new Map<string, string>([
   [new URL(DEMO_URL).pathname, demoPage],
   [new URL(DETAIL_DEMO_URL).pathname, detailListPage],
@@ -57,7 +72,6 @@ export class BrowserHost implements BrowserPort {
       profileSession.setPermissionRequestHandler((_contents, _permission, callback) =>
         callback(false),
       );
-      profileSession.setPermissionCheckHandler(() => false);
       profileSession.setPermissionCheckHandler(() => false);
       if (!configuredProfiles.has(profile.id))
         profileSession.protocol.handle("clawler-demo", (request) => {
@@ -93,7 +107,9 @@ export class BrowserHost implements BrowserPort {
       contents.on("will-navigate", validateNavigation);
       contents.on("will-redirect", validateNavigation);
       contents.on("did-finish-load", () => {
-        void contents.insertCSS(hiddenScrollbarCss, { cssOrigin: "user" }).catch(() => undefined);
+        void contents
+          .insertCSS(`${hiddenScrollbarCss}${highlightCss}`, { cssOrigin: "user" })
+          .catch(() => undefined);
       });
       this.views.set(profile.id, view);
       void view.webContents.loadURL(DEMO_URL).catch(() => undefined);
@@ -190,6 +206,51 @@ export class BrowserHost implements BrowserPort {
     });
     signal.throwIfAborted();
     return z.object({ result: z.object({ value: documentSchema }) }).parse(response).result.value;
+  }
+
+  async observe(signal: AbortSignal): Promise<PageStructure> {
+    signal.throwIfAborted();
+    const contents = this.getContents();
+    const response: unknown = await this.evaluate(
+      contents,
+      `(${observeStructure.toString()})()`,
+      signal,
+    );
+    return structureSchema.parse(response);
+  }
+
+  async highlight(selector: string, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    const contents = this.getContents();
+    const expression = `(${highlightElements.toString()})(${JSON.stringify(selector)})`;
+    const result = z
+      .object({ count: z.number().int().min(0) })
+      .parse(await this.evaluate(contents, expression, signal));
+    // Zero matches still validates: the user sees that a selector finds nothing.
+    if (result.count === 0 && selector.trim()) throw new AppError("NOT_FOUND");
+  }
+
+  /** CDP evaluate with abort, exception and error-shape handling shared by observe/highlight. */
+  private async evaluate(
+    contents: WebContents,
+    expression: string,
+    signal: AbortSignal,
+  ): Promise<unknown> {
+    signal.throwIfAborted();
+    if (!contents.debugger.isAttached()) contents.debugger.attach("1.3");
+    const response: unknown = await contents.debugger.sendCommand("Runtime.evaluate", {
+      expression,
+      returnByValue: true,
+    });
+    signal.throwIfAborted();
+    const parsed = z
+      .object({
+        result: z.object({ value: z.unknown().optional() }),
+        exceptionDetails: z.unknown().optional(),
+      })
+      .parse(response);
+    if (parsed.exceptionDetails) throw new AppError("INVALID_INPUT");
+    return parsed.result.value;
   }
 
   dispose(): void {

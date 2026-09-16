@@ -506,6 +506,7 @@ export class WorkspaceService {
         return null;
       case "browser.navigate": {
         this.assertIdle();
+        if (this.host.recorder.active) throw new AppError("BUSY");
         this.mutationPending = true;
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(new AppError("TIMEOUT")), 30_000);
@@ -517,6 +518,40 @@ export class WorkspaceService {
         }
         return null;
       }
+      case "browser.observe": {
+        this.assertIdle();
+        if (this.host.recorder.active) throw new AppError("BUSY");
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(new AppError("TIMEOUT")), 30_000);
+        try {
+          return await this.host.observe(controller.signal);
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+      case "browser.highlight": {
+        this.assertIdle();
+        if (this.host.recorder.active) throw new AppError("BUSY");
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(new AppError("TIMEOUT")), 15_000);
+        try {
+          await this.host.highlight(request.selector, controller.signal);
+        } finally {
+          clearTimeout(timer);
+        }
+        return null;
+      }
+      case "browser.clearHighlight": {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(new AppError("TIMEOUT")), 15_000);
+        try {
+          await this.host.highlight("", controller.signal);
+        } finally {
+          clearTimeout(timer);
+        }
+        return null;
+      }
+
       case "window.control": {
         if (this.window.isDestroyed()) return null;
         if (request.action === "minimize") this.window.minimize();

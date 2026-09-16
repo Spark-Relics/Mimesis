@@ -169,6 +169,23 @@ export const zhCN = {
   flowTiktokPreset: "打开 TikTok 主页示例",
   flowTiktokPresetLoaded:
     "已加载 TikTok 主页配置：采集每个作品的链接、播放量与封面缩略图（标题只存在于缩略图 alt 中，当前字段类型读不到）。种子账号只是占位，选择器对所有主页通用；把目标网址换成任意账号即可复用，外部调用还能对每个任务单独传 targetUrl 换主页、传运行参数换关键词。",
+  suggestTitle: "自动识别页面结构",
+  suggestHint:
+    "应用读取当前页面并给出列表、字段与翻页候选，你只需勾选确认。这是确定性的结构分析，不调用模型，不修改已发布的流程。",
+  suggestScan: "识别当前页面",
+  suggestRescan: "重新识别",
+  suggestResultHint:
+    "候选按重复度排序。勾选要采集的字段后应用，选择器会写入下方配置，仍可手动调整。",
+  suggestLists: "列表区域",
+  suggestItemsUnit: "项",
+  suggestPagination: "翻页控件（可选）",
+  suggestNoPagination: "不使用翻页",
+  suggestItemItself: "列表项自身",
+  suggestNoFields: "该列表没有识别出可提取的字段，可手动添加或换一个列表区域。",
+  suggestEmpty: "当前页面没有识别出重复的列表结构。可先打开目标页面再试，或手动填写选择器。",
+  suggestApply: "应用所选字段",
+  suggestFailed: "页面读取失败。请确认内置浏览器已打开目标网址，且页面已加载完成。",
+  suggestApplied: "已应用识别结果。选择器写入配置，请试跑验证。",
   flowRecipeTitle: "可复用的采集流程",
   flowRecipeHint: "保存操作规则，换参数即可再次运行。每个实例独立保存自己的流程。",
   flowExecutable: "真实执行",
@@ -610,6 +627,26 @@ export const enUS: Record<MessageKey, string> = {
   flowTiktokPreset: "Open TikTok profile example",
   flowTiktokPresetLoaded:
     "Loaded the TikTok profile recipe: it collects each post's link, view count and thumbnail (the caption lives only in the thumbnail alt attribute, which the field types cannot read). The seeded account is only a placeholder and the selectors apply to any profile; reuse it by changing the target URL, and external calls may pass a per-job targetUrl or run parameters.",
+  suggestTitle: "Read the page for me",
+  suggestHint:
+    "The app reads the current page and proposes lists, fields and pagination; you confirm by checking boxes. Deterministic structural analysis — no model, no changes to published workflows.",
+  suggestScan: "Read this page",
+  suggestRescan: "Read again",
+  suggestResultHint:
+    "Candidates are ordered by repetition. Pick the fields you need and apply; selectors land below and stay editable.",
+  suggestLists: "List region",
+  suggestItemsUnit: "items",
+  suggestPagination: "Next-page control (optional)",
+  suggestNoPagination: "No pagination",
+  suggestItemItself: "The item itself",
+  suggestNoFields:
+    "No extractable fields found in this region. Try another region or add fields by hand.",
+  suggestEmpty:
+    "No repeated list structure found on this page. Open the target page first, or fill the selectors by hand.",
+  suggestApply: "Apply selected fields",
+  suggestFailed:
+    "Could not read the page. Make sure the built-in browser is on the target URL and the page has loaded.",
+  suggestApplied: "Proposal applied. Selectors are in the workflow — dry run to verify them.",
   flowRecipeTitle: "Reusable collection workflow",
   flowRecipeHint:
     "Save the rules, then run again with different parameters. Each instance owns its workflow.",

@@ -447,7 +447,12 @@ export function InstanceDetailPage({
                 {t("flowLastClickLoop")}
               </Button>
             )}
-            <CollectionEditor workflow={workflow} onChange={setWorkflow} disabled={disabled} />
+            <CollectionEditor
+              workflow={workflow}
+              onChange={setWorkflow}
+              disabled={disabled}
+              url={url}
+            />
             <section className="workflow-section">
               <h2>{t("flowParameters")}</h2>
               <p className="workflow-muted">{t("flowParametersHint")}</p>

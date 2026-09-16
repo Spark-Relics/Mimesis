@@ -313,6 +313,53 @@ export const collectionWorkflowSchema = z.strictObject({
     .optional(),
 });
 export type CollectionWorkflow = z.infer<typeof collectionWorkflowSchema>;
+
+/**
+ * Structure observation: the application reads the page itself and proposes
+ * reusable selectors, so the user confirms instead of writing CSS by hand.
+ * This is deterministic page analysis, not a model capability.
+ */
+export const candidateFieldSchema = z.object({
+  /** Suggested output field name derived from class or heading text. */
+  name: z.string().min(1).max(64),
+  /** Selector resolved within one list item; empty means the item itself. */
+  selector: z.string().max(2048),
+  attribute: z.enum(["text", "href", "src", "value"]),
+  /** Sample values from the first matched items, so the choice is verifiable. */
+  samples: z.array(z.string().max(200)).max(3),
+});
+export type CandidateField = z.infer<typeof candidateFieldSchema>;
+export const structureSchema = z.object({
+  url: z.string(),
+  /** Candidate list containers, best repetition score first. */
+  lists: z
+    .array(
+      z.object({
+        /** Containing element that groups the repeated sibling rows. */
+        selector: z.string().min(1).max(2048),
+        /**
+         * Selector for one repeated row (container + row signature). This is
+         * what a workflow's `extract.items` needs: each match becomes one
+         * record, and field selectors resolve relative to the row.
+         */
+        itemSelector: z.string().min(1).max(2048),
+        /** Number of repeated sibling items found under this container. */
+        count: z.number().int().min(1).max(2000),
+        fields: z.array(candidateFieldSchema).max(20),
+      }),
+    )
+    .max(10),
+  /** Candidate next-page controls; empty means no pagination candidate. */
+  pagination: z
+    .array(
+      z.object({
+        selector: z.string().min(1).max(2048),
+        label: z.string().max(100),
+      }),
+    )
+    .max(5),
+});
+export type PageStructure = z.infer<typeof structureSchema>;
 /** Fixed input/output schema deterministically derived from an immutable workflow. */
 export const workflowPlanSchema = z.strictObject({
   /** Input parameter names the workflow requires, in first-use order. */
@@ -667,6 +714,9 @@ export const requestSchema = z.discriminatedUnion("method", [
 
   z.object({ method: z.literal("browser.bounds"), bounds: boundsSchema }),
   z.object({ method: z.literal("browser.navigate"), url: z.string().min(1).max(4096) }),
+  z.object({ method: z.literal("browser.observe"), url: z.string().min(1).max(4096) }),
+  z.object({ method: z.literal("browser.highlight"), selector: z.string().min(1).max(2048) }),
+  z.object({ method: z.literal("browser.clearHighlight") }),
   z.object({ method: z.literal("recording.start") }),
   z.object({ method: z.literal("recording.stop") }),
   z.object({ method: z.literal("window.control"), action: windowControlSchema }),
@@ -713,6 +763,11 @@ export interface DesktopBridge {
 
   setBrowserBounds(bounds: BrowserBounds): Promise<void>;
   navigate(url: string): Promise<void>;
+  /** Reads the page and proposes list/field/pagination candidates for the user to confirm. */
+  observePage(url: string): Promise<PageStructure>;
+  /** Highlights matched elements so the user sees exactly what a selector would collect. */
+  highlight(selector: string): Promise<void>;
+  clearHighlight(): Promise<void>;
   startRecording(): Promise<void>;
   stopRecording(): Promise<Recording>;
   controlWindow(action: WindowControl): Promise<void>;

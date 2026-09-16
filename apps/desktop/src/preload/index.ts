@@ -10,6 +10,7 @@ import {
   recordingSchema,
   runSchema,
   storageLocationSchema,
+  structureSchema,
   workflowPlanSchema,
   workflowVersionSchema,
   workspaceSchema,
@@ -85,6 +86,14 @@ const bridge: DesktopBridge = {
   },
   navigate: async (url) => {
     await request({ method: "browser.navigate", url });
+  },
+  observePage: async (url) =>
+    structureSchema.parse(await request({ method: "browser.observe", url })),
+  highlight: async (selector) => {
+    await request({ method: "browser.highlight", selector });
+  },
+  clearHighlight: async () => {
+    await request({ method: "browser.clearHighlight" });
   },
   startRecording: async () => {
     await request({ method: "recording.start" });

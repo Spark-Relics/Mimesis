@@ -11,6 +11,7 @@ import { Button } from "@clawler/ui";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { stepKeys } from "../../shared/presentation";
+import { SuggestPanel } from "./SuggestPanel";
 
 export const emptyWorkflow: CollectionWorkflow = {
   version: 1,
@@ -278,14 +279,18 @@ export function CollectionEditor({
   workflow,
   onChange,
   disabled,
+  url,
 }: {
   workflow: CollectionWorkflow;
   onChange(value: CollectionWorkflow): void;
   disabled: boolean;
+  /** Page the built-in browser shows; proposals are read from it. */
+  url: string;
 }) {
   const { t } = useI18n();
   const [source, setSource] = useState("");
   const [error, setError] = useState("");
+  const [, setMessage] = useState("");
   // Detail traversal stays a single source of truth for both the toggle and its inputs.
   const detail = workflow.detail;
   function action(index: number, next: WorkflowAction) {
@@ -617,6 +622,33 @@ export function CollectionEditor({
             <p>{t("flowExtractHint")}</p>
           </div>
         </div>
+        <SuggestPanel
+          disabled={disabled}
+          url={url}
+          onApply={(next) => {
+            const existing = new Set(workflow.extract.fields.map((field) => field.name));
+            const kept = next.fields
+              .filter((field) => !existing.has(field.name))
+              .map((field) => ({
+                name: field.name,
+                selector: field.selector,
+                attribute: field.attribute as "text" | "href" | "src" | "value",
+                required: false,
+              }));
+            const applied: CollectionWorkflow = {
+              ...workflow,
+              extract: {
+                items: next.items,
+                fields: [...workflow.extract.fields, ...kept],
+              },
+            };
+            // A proposed next-page selector only replaces an empty loop.
+            if (next.pagination && !workflow.pagination)
+              applied.pagination = { next: next.pagination, maxPages: 10 };
+            onChange(applied);
+            setMessage(t("suggestApplied"));
+          }}
+        />
         <label className="workflow-field">
           {t("flowItems")}
           <input

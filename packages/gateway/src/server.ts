@@ -178,10 +178,18 @@ export class GatewayServer {
               const key = request.headers["idempotency-key"];
               if (Array.isArray(key)) throw new AppError("INVALID_INPUT");
               const body = await readJson(request);
+              let submissionInput: unknown = body;
               let webhook: unknown = null;
-              if (body !== null && typeof body === "object" && "webhook" in body)
-                webhook = (body as { webhook: unknown }).webhook;
-              const result = await queue.submit(body, key ?? null, webhook);
+              if (body !== null && typeof body === "object" && "webhook" in body) {
+                // The submission schema is strict: strip the transport-only key.
+                const { webhook: extracted, ...rest } = body as { webhook: unknown } & Record<
+                  string,
+                  unknown
+                >;
+                webhook = extracted;
+                submissionInput = rest;
+              }
+              const result = await queue.submit(submissionInput, key ?? null, webhook);
               response.setHeader("Location", `/v1/jobs/${result.job.id}`);
               let status = 202;
               if (result.replayed) status = 200;
