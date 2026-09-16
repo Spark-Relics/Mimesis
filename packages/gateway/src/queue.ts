@@ -38,6 +38,8 @@ export interface GatewayQueueOptions {
   fetch?: typeof fetch;
 }
 
+export type JobListener = (job: GatewayJob) => void;
+
 export class GatewayQueue {
   private writes: Promise<unknown> = Promise.resolve();
   private worker: Promise<void> | undefined;
@@ -45,6 +47,7 @@ export class GatewayQueue {
   private closing = false;
   private storageFailed = false;
   private started = false;
+  private readonly listeners = new Map<string, Set<JobListener>>();
 
   private outbox: WebhookOutbox | undefined;
 
@@ -90,6 +93,8 @@ export class GatewayQueue {
   }
 
   private startOutbox(): void {
+    const outboxOptions: WebhookOutboxOptions = {};
+    if (this.fetchFn !== undefined) outboxOptions.fetch = this.fetchFn;
     if (!this.outbox) {
       this.outbox = new WebhookOutbox(
         {
@@ -116,7 +121,7 @@ export class GatewayQueue {
           },
           running: () => this.started && !this.closing && !this.storageFailed,
         },
-        this.fetchFn ? { fetch: this.fetchFn } : {},
+        outboxOptions,
       );
     }
     this.outbox.start();
@@ -164,6 +169,7 @@ export class GatewayQueue {
   private change<T>(mutate: (next: GatewayState) => T | Promise<T>): Promise<T> {
     const operation = this.writes.then(async () => {
       if (this.storageFailed) throw new AppError("STORAGE_FAILED");
+      const previous = this.state;
       const next = structuredClone(this.state);
       const result = await mutate(next);
       // Retention: evict oldest terminal jobs so the durable history stays bounded.
@@ -205,6 +211,18 @@ export class GatewayQueue {
         throw error;
       }
       this.state = persisted;
+      for (const job of persisted.jobs) {
+        const before = previous.jobs.find((entry) => entry.id === job.id);
+        if (!before || before === job) continue;
+        if (
+          before.status !== job.status ||
+          before.run !== job.run ||
+          before.cancelRequested !== job.cancelRequested
+        ) {
+          const snapshot = structuredClone(job);
+          for (const listener of this.listeners.get(job.id) ?? []) listener(snapshot);
+        }
+      }
       return structuredClone(result);
     });
     this.writes = operation.catch(() => undefined);
@@ -218,7 +236,8 @@ export class GatewayQueue {
   ): Promise<{ job: GatewayJob; replayed: boolean }> {
     this.assertAvailable();
     const submission = gatewaySubmitSchema.parse(input);
-    const delivery = webhook === null ? null : webhookDeliverySchema.parse(webhook);
+    let delivery: GatewayDelivery["delivery"] | null = null;
+    if (webhook !== null) delivery = webhookDeliverySchema.parse(webhook);
     if (idempotencyKey !== null && !/^[\x21-\x7e]{1,128}$/u.test(idempotencyKey))
       throw new AppError("INVALID_INPUT");
     const result = await this.change((next) => {
@@ -273,6 +292,22 @@ export class GatewayQueue {
     });
     this.kick();
     return result;
+  }
+
+  /** Notifies the listener on every persisted change of this job. No-op after close. */
+  subscribe(id: string, listener: JobListener): () => void {
+    let set = this.listeners.get(id);
+    if (!set) {
+      set = new Set();
+      this.listeners.set(id, set);
+    }
+    set.add(listener);
+    const current = this.state.jobs.find((job) => job.id === id);
+    if (current) listener(structuredClone(current));
+    return () => {
+      set?.delete(listener);
+      if (set && set.size === 0 && this.listeners.get(id) === set) this.listeners.delete(id);
+    };
   }
 
   get(id: string): GatewayJob {
@@ -396,6 +431,7 @@ export class GatewayQueue {
 
   async close(): Promise<void> {
     this.closing = true;
+    this.listeners.clear();
     this.active?.controller.abort(new AppError("CANCELLED"));
     await this.worker;
     await this.writes;

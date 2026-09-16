@@ -121,10 +121,9 @@ export class GatewayServer {
               const key = request.headers["idempotency-key"];
               if (Array.isArray(key)) throw new AppError("INVALID_INPUT");
               const body = await readJson(request);
-              const webhook =
-                body !== null && typeof body === "object" && "webhook" in body
-                  ? (body as { webhook: unknown }).webhook
-                  : null;
+              let webhook: unknown = null;
+              if (body !== null && typeof body === "object" && "webhook" in body)
+                webhook = (body as { webhook: unknown }).webhook;
               const result = await queue.submit(body, key ?? null, webhook);
               response.setHeader("Location", `/v1/jobs/${result.job.id}`);
               let status = 202;
@@ -140,12 +139,36 @@ export class GatewayServer {
               return;
             }
           }
-          const match = /^\/v1\/jobs\/([^/]+)(?:\/(cancel|result))?$/u.exec(url.pathname);
+          const match = /^\/v1\/jobs\/([^/]+)(?:\/(cancel|result|events))?$/u.exec(url.pathname);
           if (match) {
             const id = z.string().uuid().parse(match[1]);
             const action = match[2];
             if (request.method === "POST" && action === "cancel") {
               json(response, 200, { job: await queue.cancel(id) });
+              return;
+            }
+            if (request.method === "GET" && action === "events") {
+              queue.get(id);
+              response.writeHead(200, {
+                "Content-Type": "text/event-stream; charset=utf-8",
+                Connection: "keep-alive",
+              });
+              const send = (job: { status: string }) => {
+                if (response.destroyed || response.writableEnded) return;
+                response.write(`event: job\ndata: ${JSON.stringify(job)}\n\n`);
+                if (
+                  job.status === "succeeded" ||
+                  job.status === "failed" ||
+                  job.status === "cancelled"
+                ) {
+                  unsubscribe();
+                  response.end();
+                }
+              };
+              const unsubscribe = queue.subscribe(id, send);
+              request.on("close", () => {
+                unsubscribe();
+              });
               return;
             }
             if (request.method === "GET" && !action) {

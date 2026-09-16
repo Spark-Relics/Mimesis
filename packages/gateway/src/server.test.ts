@@ -40,6 +40,39 @@ async function setup() {
 }
 
 describe("local HTTP gateway", () => {
+  it("streams job lifecycle events over SSE until a terminal state", async () => {
+    const { submit, queue } = await setup();
+    const server = resources[resources.length - 1]?.server;
+    const { job } = await (await submit()).json();
+    const received: Array<{ status: string }> = [];
+    if (!server) throw new Error("missing server");
+    const stream = await fetch(`http://127.0.0.1:${server.port}/v1/jobs/${job.id}/events`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(stream.status).toBe(200);
+    expect(stream.headers.get("Content-Type")).toContain("text/event-stream");
+    queue.start();
+    const body = stream.body;
+    if (!server || !body) throw new Error("missing server or stream body");
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (
+      received.length === 0 ||
+      !["succeeded", "failed", "cancelled"].includes(received[received.length - 1]?.status ?? "")
+    ) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      for (const block of buffer.split("\n\n")) {
+        const data = /^event: job\ndata: (.+)$/mu.exec(block.trim());
+        if (data?.[1]) received.push(JSON.parse(data[1]) as { status: string });
+      }
+    }
+    expect(received.map((entry) => entry.status)).toContain("succeeded");
+    await reader.cancel();
+  });
+
   it("requires authentication on every route and rejects browser origins without exposing secrets", async () => {
     const { request } = await setup();
     for (const path of ["/v1/health", "/v1/jobs", "/v1/instances", "/unknown"]) {
