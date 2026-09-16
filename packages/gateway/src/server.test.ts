@@ -73,6 +73,18 @@ describe("local HTTP gateway", () => {
     await reader.cancel();
   });
 
+  it("returns the webhook delivery record alongside the job", async () => {
+    const { submit, request } = await setup();
+    const { job } = await (await submit()).json();
+    const body = (await (await request(`/v1/jobs/${job.id}`)).json()) as {
+      job: { id: string };
+      delivery: unknown;
+    };
+    expect(body.job.id).toBe(job.id);
+    // A job without a webhook has no delivery entry.
+    expect(body.delivery).toBeNull();
+  });
+
   it("requires authentication on every route and rejects browser origins without exposing secrets", async () => {
     const { request } = await setup();
     for (const path of ["/v1/health", "/v1/jobs", "/v1/instances", "/unknown"]) {

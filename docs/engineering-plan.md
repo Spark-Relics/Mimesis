@@ -192,3 +192,7 @@ Mimesis 是运行在用户电脑上的企业级可编排采集网关。用户通
 2026-09-16 第三十批：Webhook 投递补齐事件 ID 与签名。`webhookDeliverySchema` 新增可选 `secret`（16–256 字符，optional 无默认值，canonical 投影省略 `undefined`，旧已发布配置不受影响）；`WebhookOutbox` 每次尝试都带稳定 `X-Mimesis-Event-Id`（即 jobId，供接收方在“至少一次”重投时去重），配置 `secret` 时附加 `X-Mimesis-Signature: sha256=<hex>` 对请求正文做 HMAC-SHA256；两个保留头在调用方头部之后写入，同名用户头被覆盖、不可伪造。新增 `headersFor` 统一构造出站头。
 
 第三十批验证：`pnpm check` 通过（类型、Lint、构建与架构/i18n 约定），19 个测试文件 170 项测试通过；`queue.test.ts` 新增用例覆盖“每次尝试携带稳定事件 ID 且配置密钥时附 HMAC 签名（对正文校验、用户伪造头被覆盖）与未配置密钥时无签名”。Webhook 的 Electron 端到端与真实外网验收本批未重跑。
+
+2026-09-16 第三十一批：Webhook 投递结果可观测，闭合可靠投递回路。`GatewayQueue` 新增 `delivery(id)`：校验任务存在（未知任务 `NOT_FOUND`），返回该任务发件箱条目（`GatewayDelivery`）的克隆，无 Webhook 时返回 `null`；`GET /v1/jobs/:id` 响应扩展为 `{ job, delivery }`（新增同级 `delivery` 字段，`job` 结构不变，向后兼容）。调用方据此可直接判断投递为 `pending`（仍在重试）、`delivered` 或 `failed`，并读取 `attempts`/`lastStatusCode`/`lastError`/`deliveredAt`，无需另行轮询。
+
+第三十一批验证：`pnpm check` 通过（类型、Lint、构建与架构/i18n 约定），19 个测试文件 172 项测试通过；`queue.test.ts` 新增用例覆盖“无 Webhook 任务 `delivery` 为 `null`、有 Webhook 任务返回 `pending`/`attempts=0` 条目、未知任务抛 `NOT_FOUND`”，`server.test.ts` 新增用例覆盖 `GET /v1/jobs/:id` 返回 `{ job, delivery: null }`。Webhook 的 Electron 端到端与真实外网验收本批未重跑。

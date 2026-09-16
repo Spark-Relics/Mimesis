@@ -223,6 +223,20 @@ describe("durable browser job queue", () => {
 
   const webhook = { url: "http://127.0.0.1:9/hook" };
 
+  it("exposes the outbox delivery entry for a webhook job and null otherwise", async () => {
+    const queue = await GatewayQueue.open(memoryRepository(), executor());
+    const plain = await queue.submit(submission);
+    const hooked = await queue.submit(submission, null, webhook);
+    expect(queue.delivery(plain.job.id)).toBeNull();
+    expect(queue.delivery(hooked.job.id)).toMatchObject({
+      jobId: hooked.job.id,
+      status: "pending",
+      attempts: 0,
+    });
+    expect(() => queue.delivery("00000000-0000-4000-8000-000000000000")).toThrow("NOT_FOUND");
+    await queue.close();
+  });
+
   it("delivers succeeded job results to the webhook and records delivery evidence", async () => {
     const repository = memoryRepository();
     const bodies: string[] = [];

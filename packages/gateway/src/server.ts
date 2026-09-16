@@ -229,7 +229,9 @@ export class GatewayServer {
               return;
             }
             if (request.method === "GET" && !action) {
-              json(response, 200, { job: queue.get(id) });
+              // The outbox record travels with the job so a caller can observe
+              // delivery outcome (pending/delivered/failed) without polling twice.
+              json(response, 200, { job: queue.get(id), delivery: queue.delivery(id) });
               return;
             }
             if (request.method === "GET" && action === "result") {

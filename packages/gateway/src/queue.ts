@@ -316,6 +316,19 @@ export class GatewayQueue {
     return structuredClone(job);
   }
 
+  /**
+   * Outbox entry tracking this job's webhook delivery, or null when the job has
+   * no webhook. Lets a caller observe whether an at-least-once delivery has been
+   * accepted, is still retrying, or was given up. Throws NOT_FOUND for an unknown job.
+   */
+  delivery(id: string): GatewayDelivery | null {
+    this.assertAvailable();
+    if (!this.state.jobs.some((entry) => entry.id === id)) throw new AppError("NOT_FOUND");
+    const entry = (this.state.deliveries ?? []).find((item) => item.jobId === id);
+    if (!entry) return null;
+    return structuredClone(entry);
+  }
+
   list(offset = 0, limit = 50): { jobs: GatewayJob[]; total: number } {
     this.assertAvailable();
     return {
