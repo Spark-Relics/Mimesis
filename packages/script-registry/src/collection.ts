@@ -322,7 +322,8 @@ export async function collectPages(
       else await ctx.step("request", run, label);
       continue;
     }
-    const label = `${action.kind}: ${action.selector}`;
+    let label = `${action.kind}: ${action.selector}`;
+    if (action.kind === "scroll") label = `scroll: ${action.selector ?? "window"} → ${action.to}`;
     if (action.when && !(await browser.exists(action.when.exists, ctx.signal))) {
       ctx.skip(action.kind, `${label} (missing: ${action.when.exists})`);
       continue;
@@ -344,6 +345,9 @@ export async function collectPages(
   let pages = 0;
   let bytes = 0;
   let detailCapped = false;
+  // Scroll pages grow in place; an unchanged extraction after scrolling is the
+  // expected end of the list, not a timeout.
+  const scrollMode = Boolean(workflow.pagination && "scroll" in workflow.pagination);
   let stopReason: NonNullable<DocumentSnapshot["collection"]>["stopReason"] = "single-page";
   // Incremental watermark: the previous run's value, and the new high-water value of this run.
   const watermarkField = workflow.watermark?.field;
@@ -385,6 +389,7 @@ export async function collectPages(
               const document = await ctx.browser.inspect(ctx.signal);
               if (document.url !== previousUrl) return current;
             }
+            if (scrollMode && current.length) return current;
             throw new AppError("TIMEOUT");
           }
           await pause(ctx.signal);
@@ -486,6 +491,21 @@ export async function collectPages(
       const target = match[1] ?? match[0];
       previousUrl = (await ctx.browser.inspect(ctx.signal)).url;
       await ctx.step("navigate", () => ctx.browser.navigate(target, ctx.signal), target);
+      await pause(ctx.signal);
+      continue;
+    }
+    if ("scroll" in workflow.pagination) {
+      if (pageLimitReached) {
+        stopReason = "page-limit";
+        break;
+      }
+      const scrollSpec = workflow.pagination.scroll;
+      const label = `scroll: ${scrollSpec.selector ?? "window"} → ${scrollSpec.to}`;
+      await ctx.step(
+        "scroll",
+        () => browser.act({ kind: "scroll", ...scrollSpec }, workflow.waitTimeoutMs, ctx.signal),
+        label,
+      );
       await pause(ctx.signal);
       continue;
     }

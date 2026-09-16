@@ -73,9 +73,17 @@ function isCursorPagination(
   return "cursor" in pagination;
 }
 
+/** Type guard: scroll-mode pagination advances an in-place infinite list. */
+function isScrollPagination(
+  pagination: NonNullable<CollectionWorkflow["pagination"]>,
+): pagination is { scroll: { selector?: string; to: "top" | "bottom" }; maxPages: number } {
+  return "scroll" in pagination;
+}
+
 function paginationModeValue(pagination: NonNullable<CollectionWorkflow["pagination"]>) {
   if (isUrlPagination(pagination)) return "url";
   if (isCursorPagination(pagination)) return "cursor";
+  if (isScrollPagination(pagination)) return "scroll";
   return "click";
 }
 
@@ -160,6 +168,55 @@ function CursorPaginationFields({
             })
           }
         />
+      </label>
+    </div>
+  );
+}
+
+function ScrollPaginationFields({
+  pagination,
+  disabled,
+  onChange,
+}: {
+  pagination: { scroll: { selector?: string; to: "top" | "bottom" }; maxPages: number };
+  disabled: boolean;
+  onChange(pagination: CollectionWorkflow["pagination"]): void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="workflow-form-row">
+      <label className="workflow-field">
+        {t("flowScrollTarget")}
+        <input
+          value={pagination.scroll.selector ?? ""}
+          disabled={disabled}
+          placeholder={t("flowScrollTargetExample")}
+          onChange={(event) =>
+            onChange({
+              ...pagination,
+              scroll: {
+                ...pagination.scroll,
+                selector: event.target.value === "" ? undefined : event.target.value,
+              },
+            })
+          }
+        />
+      </label>
+      <label className="workflow-field short-field">
+        {t("flowScrollDirection")}
+        <select
+          value={pagination.scroll.to}
+          disabled={disabled}
+          onChange={(event) =>
+            onChange({
+              ...pagination,
+              scroll: { ...pagination.scroll, to: event.target.value as "top" | "bottom" },
+            })
+          }
+        >
+          <option value="bottom">{t("flowScrollBottom")}</option>
+          <option value="top">{t("flowScrollTop")}</option>
+        </select>
       </label>
     </div>
   );

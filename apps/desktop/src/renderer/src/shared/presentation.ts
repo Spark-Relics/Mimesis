@@ -22,6 +22,7 @@ export const stepKeys: Record<StepKind, MessageKey> = {
   fill: "stepFill",
   click: "stepClick",
   wait: "stepWait",
+  scroll: "stepScroll",
   extract: "stepExtract",
   request: "stepRequest",
 };

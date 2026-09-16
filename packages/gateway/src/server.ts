@@ -8,6 +8,10 @@ const configSchema = z.object({
   token: z.string().regex(/^[\x21-\x7e]{32,256}$/u),
   port: z.number().int().min(0).max(65535),
   rateLimit: z.number().int().min(0).max(10_000).optional(),
+  previousToken: z
+    .string()
+    .regex(/^[\x21-\x7e]{32,256}$/u)
+    .optional(),
 });
 export type GatewayConfig = z.infer<typeof configSchema>;
 
@@ -17,10 +21,12 @@ export function gatewayConfigFromEnv(env: NodeJS.ProcessEnv): GatewayConfig | un
   const rateLimit = env.CLAWLER_GATEWAY_RATE_LIMIT;
   let parsedRateLimit: number | undefined;
   if (rateLimit !== undefined) parsedRateLimit = Number(rateLimit);
+  const previousToken = env.CLAWLER_GATEWAY_PREVIOUS_TOKEN;
   return configSchema.parse({
     token: env.CLAWLER_GATEWAY_TOKEN,
     port: Number(env.CLAWLER_GATEWAY_PORT ?? "17840"),
     rateLimit: parsedRateLimit,
+    previousToken,
   });
 }
 
@@ -46,6 +52,12 @@ class RateLimiter {
     if (this.count <= this.limitPerSecond) return undefined;
     return Math.max(1, this.windowStart + 1000 - current);
   }
+}
+
+/** Digests a bearer credential for constant-time comparison; undefined stays undefined. */
+function digestOf(token: string | undefined): Buffer | undefined {
+  if (token === undefined) return undefined;
+  return createHash("sha256").update(`Bearer ${token}`).digest();
 }
 
 class HttpError extends Error {
@@ -114,7 +126,8 @@ export class GatewayServer {
   ): Promise<GatewayServer> {
     const config = configSchema.parse(input);
     const limiter = new RateLimiter(config.rateLimit ?? 0);
-    const expected = createHash("sha256").update(`Bearer ${config.token}`).digest();
+    const expected = digestOf(config.token) as Buffer;
+    const previous = digestOf(config.previousToken);
     const server = createServer(
       {
         maxHeaderSize: 16_384,
@@ -135,7 +148,10 @@ export class GatewayServer {
           const actual = createHash("sha256")
             .update(request.headers.authorization ?? "")
             .digest();
-          if (!timingSafeEqual(actual, expected)) {
+          const authorized =
+            timingSafeEqual(actual, expected) ||
+            (previous !== undefined && timingSafeEqual(actual, previous));
+          if (!authorized) {
             response.setHeader("WWW-Authenticate", "Bearer");
             throw new HttpError(401, "UNAUTHORIZED");
           }

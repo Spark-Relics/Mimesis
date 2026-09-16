@@ -206,4 +206,41 @@ describe("local HTTP gateway", () => {
       gatewayConfigFromEnv({ CLAWLER_GATEWAY_TOKEN: token, CLAWLER_GATEWAY_RATE_LIMIT: "-1" }),
     ).toThrow();
   });
+
+  it("accepts the previous token during rotation and rejects others", async () => {
+    expect(
+      gatewayConfigFromEnv({
+        CLAWLER_GATEWAY_TOKEN: token,
+        CLAWLER_GATEWAY_PREVIOUS_TOKEN: "previous-token-with-at-least-32-characters",
+      }),
+    ).toEqual({
+      token,
+      port: 17840,
+      previousToken: "previous-token-with-at-least-32-characters",
+    });
+    expect(() =>
+      gatewayConfigFromEnv({
+        CLAWLER_GATEWAY_TOKEN: token,
+        CLAWLER_GATEWAY_PREVIOUS_TOKEN: "short",
+      }),
+    ).toThrow();
+    const repository = memoryRepository();
+    const queue = await GatewayQueue.open(repository, {
+      resolve: () => execution,
+      execute: async () => completedRun(),
+    });
+    const server = await GatewayServer.listen(
+      { token, port: 0, previousToken: "previous-token-with-at-least-32-characters" },
+      queue,
+      () => [execution.instance],
+    );
+    resources.push({ queue, server });
+    const request = (authorization: string) =>
+      fetch(`http://127.0.0.1:${server.port}/v1/health`, {
+        headers: { Authorization: authorization },
+      });
+    expect((await request(`Bearer ${token}`)).status).toBe(200);
+    expect((await request("Bearer previous-token-with-at-least-32-characters")).status).toBe(200);
+    expect((await request("Bearer another-token-with-at-least-32-characters-x")).status).toBe(401);
+  });
 });

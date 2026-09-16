@@ -11,7 +11,8 @@
       "!playwright-report",
       "!docs",
       "!pnpm-lock.yaml",
-      "!.adnify"
+      "!.adnify",
+      "!tmp"
     ]
   },
   "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },

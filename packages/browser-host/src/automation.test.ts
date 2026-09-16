@@ -42,6 +42,13 @@ describe("browser action mediation", () => {
     ).toEqual(["mousePressed", "mouseReleased"]);
   });
 
+  it("scrolls the main window to bottom via a page-side script", async () => {
+    const { automation, sendCommand } = fixture();
+    await automation.act({ kind: "scroll", to: "bottom" }, 500, new AbortController().signal);
+    const call = sendCommand.mock.calls.find(([method]) => method === "Runtime.evaluate");
+    expect(String(call?.[1]?.expression ?? "")).toMatch(/scrollPage/u);
+  });
+
   it("allows extraction polling during navigation but does not swallow invalid selectors", async () => {
     const { automation, sendCommand, isLoadingMainFrame } = fixture();
     const signal = new AbortController().signal;

@@ -14,7 +14,8 @@ import { parameterNames, validateForPublish, workflowDigest } from "./versions";
 /** Request actions carry a URL instead of a selector; both matter in `act` evidence. */
 function actionTarget(action: WorkflowAction): string {
   if (action.kind === "request") return action.request.url;
-  return action.selector;
+  if (action.kind === "scroll") return action.selector ?? "window";
+  return action.selector ?? "";
 }
 
 const recipe: CollectionWorkflow = {

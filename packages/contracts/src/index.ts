@@ -125,6 +125,18 @@ export const workflowActionSchema = z.discriminatedUnion("kind", [
     when: workflowConditionSchema.optional(),
     onError: actionErrorSchema.optional(),
   }),
+  z
+    .strictObject({
+      kind: z.literal("scroll"),
+      /** Element whose scroll container advances; absent scrolls the main window. */
+      selector: selectorSchema.optional(),
+      to: z.enum(["top", "bottom"]).default("bottom"),
+      when: workflowConditionSchema.optional(),
+      onError: actionErrorSchema.optional(),
+    })
+    .refine((value) => value.to === "bottom" || value.selector === undefined, {
+      message: "selector is only meaningful when scrolling to bottom",
+    }),
 ]);
 export const extractionSchema = z
   .strictObject({
@@ -219,6 +231,19 @@ export const collectionWorkflowSchema = z.strictObject({
         cursor: z.strictObject({
           request: httpRequestSchema,
           pattern: z.string().trim().min(1).max(500),
+        }),
+        maxPages: z.number().int().min(1).max(50),
+      }),
+      /**
+       * Scroll-mode pagination: after each page the window (or the container
+       * matched by `selector`) scrolls to `to`, then extraction re-runs on the
+       * now-longer list. Runs end with `no-new-records` once scrolling yields
+       * nothing new, so `maxPages` bounds effort rather than completeness.
+       */
+      z.strictObject({
+        scroll: z.strictObject({
+          selector: selectorSchema.optional(),
+          to: z.enum(["top", "bottom"]).default("bottom"),
         }),
         maxPages: z.number().int().min(1).max(50),
       }),
@@ -406,6 +431,7 @@ export const stepKindSchema = z.enum([
   "fill",
   "click",
   "wait",
+  "scroll",
   "extract",
   "request",
 ]);

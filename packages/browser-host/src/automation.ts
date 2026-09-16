@@ -63,6 +63,23 @@ function locate(
   }
 }
 
+/** Scroll target: the main window or a container element matched by `selector`. */
+function scrollPage(selector: string | null, toBottom: boolean) {
+  try {
+    let target: Element | Window = window;
+    if (selector) {
+      const matches = document.querySelectorAll(selector);
+      if (matches.length !== 1) return { error: "INVALID_INPUT" as const };
+      target = matches[0] as Element;
+    }
+    if (toBottom) target.scrollTo?.({ top: (target as Element).scrollHeight, behavior: "instant" });
+    else target.scrollTo?.({ top: 0, behavior: "instant" });
+    return { ok: true as const };
+  } catch {
+    return { error: "INVALID_INPUT" as const };
+  }
+}
+
 function extractPage(input: Extraction) {
   try {
     const items = document.querySelectorAll(input.items);
@@ -209,6 +226,25 @@ export class BrowserAutomation implements BrowserAutomationPort {
   ): Promise<void> {
     // Only element actions reach the page; HTTP requests go through the HttpPort instead.
     if (action.kind === "request") throw new AppError("INVALID_INPUT");
+    // Scrolling is not element-targeted the way click/fill/wait are; run it directly.
+    if (action.kind === "scroll") {
+      const contents = this.contents();
+      signal.throwIfAborted();
+      const result = z
+        .object({
+          ok: z.boolean().optional(),
+          error: z.enum(["INVALID_INPUT", "FORBIDDEN"]).optional(),
+        })
+        .parse(
+          await this.evaluate(
+            contents,
+            `(${scrollPage.toString()})(${JSON.stringify(action.selector ?? null)},${action.to === "bottom"})`,
+            signal,
+          ),
+        );
+      if (result.error) throw new AppError(result.error);
+      return;
+    }
     const contents = this.contents();
     const deadline = Date.now() + timeoutMs;
     while (true) {

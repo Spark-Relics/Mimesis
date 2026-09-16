@@ -12,3 +12,4 @@ coverage/
 !.env.example
 *.log
 .adnify/
+tmp/
