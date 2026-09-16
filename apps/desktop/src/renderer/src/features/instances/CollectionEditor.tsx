@@ -196,7 +196,8 @@ function ScrollPaginationFields({
               ...pagination,
               scroll: {
                 ...pagination.scroll,
-                selector: event.target.value === "" ? undefined : event.target.value,
+                // An empty selector means "scroll the window", so the key is dropped.
+                selector: event.target.value || undefined,
               },
             })
           }
@@ -461,7 +462,7 @@ export function CollectionEditor({
                     const selector = event.target.value;
                     // A scroll action's selector is optional; empty means scroll the window.
                     if (entry.kind === "scroll") {
-                      action(index, { ...entry, selector: selector === "" ? undefined : selector });
+                      action(index, { ...entry, selector: selector || undefined });
                       return;
                     }
                     action(index, { ...entry, selector });
@@ -475,12 +476,8 @@ export function CollectionEditor({
                   disabled={disabled}
                   onChange={(event) => {
                     const to = event.target.value as "top" | "bottom";
-                    // Scrolling to the top only accepts a container selector per the schema.
-                    action(index, {
-                      ...entry,
-                      to,
-                      selector: to === "top" ? undefined : entry.selector,
-                    });
+                    // The selector names the container to scroll; direction is independent of it.
+                    action(index, { ...entry, to });
                   }}
                 >
                   <option value="bottom">{t("flowScrollBottom")}</option>
@@ -704,13 +701,14 @@ export function CollectionEditor({
                 />
               </label>
             </div>
-            {paginationModeValue(workflow.pagination) === "url" && isUrlPagination(workflow.pagination) && (
-              <UrlPaginationFields
-                pagination={workflow.pagination}
-                disabled={disabled}
-                onChange={(pagination) => onChange({ ...workflow, pagination })}
-              />
-            )}
+            {paginationModeValue(workflow.pagination) === "url" &&
+              isUrlPagination(workflow.pagination) && (
+                <UrlPaginationFields
+                  pagination={workflow.pagination}
+                  disabled={disabled}
+                  onChange={(pagination) => onChange({ ...workflow, pagination })}
+                />
+              )}
             {paginationModeValue(workflow.pagination) === "cursor" &&
               isCursorPagination(workflow.pagination) && (
                 <CursorPaginationFields
@@ -734,7 +732,6 @@ export function CollectionEditor({
                 onChange={(pagination) => onChange({ ...workflow, pagination })}
               />
             )}
-
           </>
         )}
         <div className="workflow-form-row">
