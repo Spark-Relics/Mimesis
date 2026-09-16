@@ -180,3 +180,7 @@ Mimesis 是运行在用户电脑上的企业级可编排采集网关。用户通
 2026-09-16 第二十八批：实现"服务与交付"限流。网关配置新增可选 `rateLimit`（每秒请求数 0–10000，缺省/0 不限流，环境变量 `CLAWLER_GATEWAY_RATE_LIMIT`）；`GatewayServer` 内置固定窗口计数器：认证之后、路由分发之前逐请求计数，超出本秒预算即以 `RATE_LIMITED` 返回 429 并附整数秒 `Retry-After` 头，下一窗口自动恢复；不做请求排队或延迟。同时补上第二十七批遗留的 `WebhookOutboxOptions` 类型导入缺失（`tsc --noEmit` 曾失败）。
 
 第二十八批验证：`pnpm check` 通过（类型、Lint、构建与架构/i18n 约定），19 个测试文件 166 项测试通过；server 新增用例覆盖预算内放行、超出后 429＋`RATE_LIMITED`＋整数秒 `Retry-After`、下一窗口恢复，以及环境变量解析（合法值/0/NaN/负数拒绝）。限流未设置时行为与既有路由完全一致（既有用例未改动即通过）。
+
+2026-09-16 补（滚动整合）：修复 9100053 引入滚动动作与滚动翻页后流程编辑器未接线的问题——`CollectionEditor` 的分页方式下拉补上“滚动加载（无限列表）”选项并渲染 `ScrollPaginationFields`；补全 `flowPaginationScroll`、`flowScrollTarget/-Example`、`flowScrollDirection`、`flowScrollBottom/-Top` 中英双语键；`before` 动作新增 `scroll` 按钮与方向选择器，选择器留空表示滚动整个页面（`to="top"` 时按契约忽略选择器）。
+
+2026-09-16 补验证：`pnpm typecheck` 通过，`pnpm test` 19 个测试文件 168 项测试全部通过。滚动执行链（`packages/script-registry/src/collection.ts`、`packages/browser-host/src/automation.ts`）此前已在 9100053 落地，本批仅补齐编辑器与文案。
