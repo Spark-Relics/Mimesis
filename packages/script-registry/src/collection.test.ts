@@ -61,6 +61,7 @@ function fixture(
       // Initial navigation keeps the first page; each URL-mode page advances.
       if (
         url !== "https://example.com" &&
+        url !== "https://example.com/" &&
         url !== "https://example.com/list" &&
         url !== "https://example.com/list?start=1"
       )
@@ -442,6 +443,100 @@ describe("reusable collection interpreter", () => {
       ".item",
       undefined,
     ]);
+  });
+
+  it("paginates by a dynamic cursor extracted from the response body", async () => {
+    vi.useFakeTimers();
+    // Three pages; the cursor response yields page 2 then no further link.
+    const { ctx, browser, steps, http } = fixture([
+      [{ name: "A" }],
+      [{ name: "B" }],
+      [{ name: "C" }],
+    ]);
+    let calls = 0;
+    const bodies = ["next=https://example.com/page-2", '{"next":null}'];
+    http.fetch = vi.fn(async () => {
+      const body: string = bodies[Math.min(calls++, bodies.length - 1)] ?? "";
+      return { status: 200, body };
+    });
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [],
+      pagination: {
+        cursor: {
+          request: {
+            method: "GET",
+            url: "https://api.example.com/page?url={{url}}",
+            headers: {},
+            timeoutMs: 5000,
+            expectStatus: 200,
+          },
+          pattern: "next=([^\\s]+)",
+        },
+        maxPages: 5,
+      },
+    };
+    const resultPromise = collectPages(ctx, {
+      url: "https://example.com/",
+      workflow,
+      parameters: { url: "https://example.com/" },
+    });
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+    expect(result.records).toEqual([{ name: "A" }, { name: "B" }]);
+    expect(result.collection).toEqual({
+      pages: 2,
+      stopReason: "cursor-exhausted",
+      truncated: false,
+    });
+    expect(browser.navigate.mock.calls.map(([url]) => url)).toEqual([
+      "https://example.com/",
+      "https://example.com/page-2",
+    ]);
+    // A request step runs after each page's extraction; no click actions.
+    expect(steps.map((entry) => entry.kind)).toEqual([
+      "navigate",
+      "extract",
+      "request",
+      "navigate",
+      "extract",
+      "request",
+      "inspect",
+    ]);
+  });
+
+  it("stops cursor pagination at maxPages before issuing the extra request", async () => {
+    vi.useFakeTimers();
+    const { ctx, http } = fixture([[{ name: "A" }], [{ name: "B" }], [{ name: "C" }]]);
+    let calls = 0;
+    http.fetch = vi.fn(async () => {
+      calls++;
+      return { status: 200, body: "next=https://example.com/page-2" };
+    });
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [],
+      pagination: {
+        cursor: {
+          request: {
+            method: "GET",
+            url: "https://api.example.com/page",
+            headers: {},
+            timeoutMs: 5000,
+            expectStatus: 200,
+          },
+          pattern: "next=(.+)",
+        },
+        maxPages: 2,
+      },
+    };
+    const resultPromise = collectPages(ctx, { url: "https://example.com/", workflow });
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+    expect(result.records).toEqual([{ name: "A" }, { name: "B" }]);
+    expect(result.collection).toEqual({ pages: 2, stopReason: "page-limit", truncated: true });
+    // One cursor request per collected page except the last (limit reached first).
+    expect(calls).toBe(1);
   });
 
   it("deduplicates by configured field names across pages", async () => {

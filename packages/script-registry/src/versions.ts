@@ -58,6 +58,12 @@ export function parameterNames(workflow: CollectionWorkflow): string[] {
     // `{{page}}` is the pagination cursor, not a run parameter.
     addPlaceholderNames(workflow.pagination.urlTemplate, capturedNames(workflow, -1), true);
   }
+  if (workflow.pagination && "cursor" in workflow.pagination) {
+    const spec = workflow.pagination.cursor.request;
+    const captured = capturedNames(workflow, workflow.before.length);
+    for (const text of [spec.url, ...Object.values(spec.headers), spec.body ?? ""])
+      addPlaceholderNames(text, captured, false);
+  }
   return names;
 }
 
@@ -81,6 +87,14 @@ export function validateForPublish(input: unknown): CollectionWorkflow {
     if (stripped.includes("{{") || stripped.includes("}}")) throw new AppError("INVALID_INPUT");
   }
   if (workflow.pagination && workflow.pagination.maxPages < 2) throw new AppError("INVALID_INPUT");
+  if (workflow.pagination && "cursor" in workflow.pagination) {
+    // An invalid pattern would fail every page at runtime; reject at publish time.
+    try {
+      new RegExp(workflow.pagination.cursor.pattern, "u");
+    } catch {
+      throw new AppError("INVALID_INPUT");
+    }
+  }
   const dedupe = workflow.dedupe;
   if (dedupe.length) {
     // Dedupe names must address real output fields; unknown names would silently no-op.

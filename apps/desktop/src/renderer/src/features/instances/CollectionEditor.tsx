@@ -63,8 +63,19 @@ function isUrlPagination(
   return "urlTemplate" in pagination;
 }
 
+/** Type guard: cursor-mode pagination extracts the next URL from a response body. */
+function isCursorPagination(
+  pagination: NonNullable<CollectionWorkflow["pagination"]>,
+): pagination is {
+  cursor: { request: HttpRequestSpec; pattern: string };
+  maxPages: number;
+} {
+  return "cursor" in pagination;
+}
+
 function paginationModeValue(pagination: NonNullable<CollectionWorkflow["pagination"]>) {
   if (isUrlPagination(pagination)) return "url";
+  if (isCursorPagination(pagination)) return "cursor";
   return "click";
 }
 
@@ -98,6 +109,56 @@ function UrlPaginationFields({
           value={pagination.startPage}
           disabled={disabled}
           onChange={(event) => onChange({ ...pagination, startPage: Number(event.target.value) })}
+        />
+      </label>
+    </div>
+  );
+}
+
+function CursorPaginationFields({
+  pagination,
+  disabled,
+  onChange,
+}: {
+  pagination: {
+    cursor: { request: HttpRequestSpec; pattern: string };
+    maxPages: number;
+  };
+  disabled: boolean;
+  onChange(pagination: CollectionWorkflow["pagination"]): void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="workflow-form-row">
+      <label className="workflow-field">
+        {t("flowCursorUrl")}
+        <input
+          value={pagination.cursor.request.url}
+          disabled={disabled}
+          placeholder={t("flowCursorUrlExample")}
+          onChange={(event) =>
+            onChange({
+              ...pagination,
+              cursor: {
+                ...pagination.cursor,
+                request: { ...pagination.cursor.request, url: event.target.value },
+              },
+            })
+          }
+        />
+      </label>
+      <label className="workflow-field">
+        {t("flowCursorPattern")}
+        <input
+          value={pagination.cursor.pattern}
+          disabled={disabled}
+          placeholder={t("flowCursorPatternExample")}
+          onChange={(event) =>
+            onChange({
+              ...pagination,
+              cursor: { ...pagination.cursor, pattern: event.target.value },
+            })
+          }
         />
       </label>
     </div>
@@ -493,12 +554,27 @@ export function CollectionEditor({
                         startPage: 1,
                         maxPages: workflow.pagination.maxPages,
                       };
+                    else if (event.target.value === "cursor")
+                      pagination = {
+                        cursor: {
+                          request: {
+                            method: "GET",
+                            url: "https://api.example.com/page",
+                            headers: {},
+                            timeoutMs: 5000,
+                            expectStatus: 200,
+                          },
+                          pattern: "next=(\\S+)",
+                        },
+                        maxPages: workflow.pagination.maxPages,
+                      };
                     else pagination = { next: "", maxPages: workflow.pagination.maxPages };
                     onChange({ ...workflow, pagination });
                   }}
                 >
                   <option value="click">{t("flowPaginationClick")}</option>
                   <option value="url">{t("flowPaginationUrl")}</option>
+                  <option value="cursor">{t("flowPaginationCursor")}</option>
                 </select>
               </label>
               <label className="workflow-field short-field">
@@ -529,7 +605,14 @@ export function CollectionEditor({
                 onChange={(pagination) => onChange({ ...workflow, pagination })}
               />
             )}
-            {!isUrlPagination(workflow.pagination) && (
+            {isCursorPagination(workflow.pagination) && (
+              <CursorPaginationFields
+                pagination={workflow.pagination}
+                disabled={disabled}
+                onChange={(pagination) => onChange({ ...workflow, pagination })}
+              />
+            )}
+            {!isUrlPagination(workflow.pagination) && !isCursorPagination(workflow.pagination) && (
               <ClickPaginationFields
                 pagination={workflow.pagination}
                 disabled={disabled}

@@ -205,6 +205,18 @@ export const collectionWorkflowSchema = z.strictObject({
         .refine((value) => value.urlTemplate.includes("{{page}}"), {
           message: "urlTemplate must reference {{page}}",
         }),
+      /**
+       * Cursor-mode pagination: after each page a request runs and the first
+       * capture-group match of `pattern` in the captured body becomes the next
+       * page URL. No match ends the run (`cursor-exhausted`).
+       */
+      z.strictObject({
+        cursor: z.strictObject({
+          request: httpRequestSchema,
+          pattern: z.string().trim().min(1).max(500),
+        }),
+        maxPages: z.number().int().min(1).max(50),
+      }),
     ])
     .nullable(),
   detail: detailSchema.optional(),
@@ -372,6 +384,7 @@ export const documentSchema = z.object({
         "page-limit",
         "record-limit",
         "watermark-reached",
+        "cursor-exhausted",
       ]),
       truncated: z.boolean(),
       /** New high-water value of the configured watermark field; present only when configured. */

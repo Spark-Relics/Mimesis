@@ -1,3 +1,4 @@
+import type { HttpRequestSpec } from "@clawler/contracts";
 import {
   AppError,
   type CollectionRecord,
@@ -105,18 +106,17 @@ export function resolveWorkflow(
       if (!Object.hasOwn(values, name)) throw new AppError("INVALID_INPUT");
       return values[name] ?? "";
     });
+  const bakeRequest = (spec: HttpRequestSpec): HttpRequestSpec => ({
+    ...spec,
+    url: substitute(spec.url),
+    headers: Object.fromEntries(
+      Object.entries(spec.headers).map(([key, value]) => [key, substitute(value)]),
+    ),
+    ...(spec.body !== undefined && { body: substitute(spec.body) }),
+  });
   for (const action of workflow.before) {
     if (action.kind === "fill") action.value = substitute(action.value);
-    if (action.kind === "request") {
-      action.request = {
-        ...action.request,
-        url: substitute(action.request.url),
-        headers: Object.fromEntries(
-          Object.entries(action.request.headers).map(([key, value]) => [key, substitute(value)]),
-        ),
-        ...(action.request.body !== undefined && { body: substitute(action.request.body) }),
-      };
-    }
+    if (action.kind === "request") action.request = bakeRequest(action.request);
   }
   const templated = workflow.pagination;
   if (templated && "urlTemplate" in templated) {
@@ -131,6 +131,15 @@ export function resolveWorkflow(
       },
     );
     workflow.pagination = { ...templated, urlTemplate };
+  }
+  if (templated && "cursor" in templated) {
+    // Cursor requests run per page; parameters bake in once, response references
+    // resolve at execution time. `{{page}}` is not available here — the next URL
+    // comes from the response body itself.
+    workflow.pagination = {
+      ...templated,
+      cursor: { ...templated.cursor, request: bakeRequest(templated.cursor.request) },
+    };
   }
   return collectionWorkflowSchema.parse(workflow);
 }
@@ -261,43 +270,47 @@ export async function collectPages(
       if (!Object.hasOwn(captures, name)) throw new AppError("INVALID_INPUT");
       return captures[name] ?? "";
     });
+  /** Executes one request spec with bounded retry; returns the response body. */
+  const fetchWithRetry = async (spec: HttpRequestSpec): Promise<string> => {
+    if (!ctx.http) throw new AppError("INVALID_INPUT");
+    const request = {
+      method: spec.method,
+      url: substituteCaptures(spec.url),
+      headers: Object.fromEntries(
+        Object.entries(spec.headers).map(([key, value]) => [key, substituteCaptures(value)]),
+      ),
+      ...(spec.body !== undefined && { body: substituteCaptures(spec.body) }),
+    };
+    // Bounded retry: a failed attempt (network/timeout/status) is replayed until
+    // attempts run out; cancellation aborts the loop rather than retrying.
+    const attempts = (spec.retries ?? 0) + 1;
+    const delayMs = spec.retryDelayMs ?? defaultRetryDelayMs;
+    let lastError: unknown;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      if (attempt > 0) await wait(ctx.signal, delayMs);
+      try {
+        const response = await ctx.http.fetch(
+          request,
+          spec.timeoutMs,
+          spec.capture?.maxLength ?? 4096,
+          ctx.signal,
+        );
+        if (response.status !== spec.expectStatus) throw new AppError("REQUEST_FAILED");
+        if (spec.capture) captures[spec.capture.name] = response.body;
+        return response.body;
+      } catch (error) {
+        ctx.signal.throwIfAborted();
+        lastError = error;
+      }
+    }
+    throw lastError;
+  };
   for (const action of workflow.before) {
     if (action.kind === "request") {
       const spec = action.request;
       const label = `request: ${spec.method} ${spec.url}`;
       const run = async (): Promise<void> => {
-        if (!ctx.http) throw new AppError("INVALID_INPUT");
-        const request = {
-          method: spec.method,
-          url: substituteCaptures(spec.url),
-          headers: Object.fromEntries(
-            Object.entries(spec.headers).map(([key, value]) => [key, substituteCaptures(value)]),
-          ),
-          ...(spec.body !== undefined && { body: substituteCaptures(spec.body) }),
-        };
-        // Bounded retry: a failed attempt (network/timeout/status) is replayed until
-        // attempts run out; cancellation aborts the loop rather than retrying.
-        const attempts = (spec.retries ?? 0) + 1;
-        const delayMs = spec.retryDelayMs ?? defaultRetryDelayMs;
-        let lastError: unknown;
-        for (let attempt = 0; attempt < attempts; attempt++) {
-          if (attempt > 0) await wait(ctx.signal, delayMs);
-          try {
-            const response = await ctx.http.fetch(
-              request,
-              spec.timeoutMs,
-              spec.capture?.maxLength ?? 4096,
-              ctx.signal,
-            );
-            if (response.status !== spec.expectStatus) throw new AppError("REQUEST_FAILED");
-            if (spec.capture) captures[spec.capture.name] = response.body;
-            return;
-          } catch (error) {
-            ctx.signal.throwIfAborted();
-            lastError = error;
-          }
-        }
-        throw lastError;
+        await fetchWithRetry(spec);
       };
       // `when` for a request is validated against the page, mirroring element actions.
       if (action.when && !(await browser.exists(action.when.exists, ctx.signal))) {
@@ -450,6 +463,27 @@ export async function collectPages(
           String(workflow.pagination.startPage + pages),
         ),
       );
+      await ctx.step("navigate", () => ctx.browser.navigate(target, ctx.signal), target);
+      await pause(ctx.signal);
+      continue;
+    }
+    if ("cursor" in workflow.pagination) {
+      if (pageLimitReached) {
+        stopReason = "page-limit";
+        break;
+      }
+      const { request, pattern } = workflow.pagination.cursor;
+      const label = `request: ${request.method} ${request.url}`;
+      const body = await ctx.step("request", () => fetchWithRetry(request), label);
+      // The first capture group of the pattern extracts the next page URL from
+      // the response body; no match means the cursor is exhausted.
+      const match = new RegExp(pattern, "u").exec(body);
+      if (!match) {
+        stopReason = "cursor-exhausted";
+        break;
+      }
+      const target = match[1] ?? match[0];
+      previousUrl = (await ctx.browser.inspect(ctx.signal)).url;
       await ctx.step("navigate", () => ctx.browser.navigate(target, ctx.signal), target);
       await pause(ctx.signal);
       continue;
