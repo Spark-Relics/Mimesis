@@ -171,4 +171,8 @@ Mimesis 是运行在用户电脑上的企业级可编排采集网关。用户通
 
 2026-09-16 第二十六批：实现“请求与响应”浏览器会话关联。`httpRequestSchema` 新增可选 `useSession`：启用后该请求从当前浏览器 Profile 会话发出（Electron `net.request` 绑定 Profile session），携带环境 Cookie 与会话状态，实现登录态 API 采集；缺省仍为隔离请求，两者语义与既有内容摘要完全兼容（optional 无默认值，canonical 投影省略 `undefined`，取消勾选即移除键）。链路：契约 → `HttpPort.fetch` 请求对象新增 `useSession` 标志 → 解释器 `fetchWithRetry` 透传 → `HttpHost` 构造时注入会话提供者（`BrowserHost.currentSession()` 返回当前选中 Profile 的 session）→ `net.request({ session })`。游标请求与 before 动作统一经 `fetchWithRetry`，同样支持。桌面流程编辑器 HTTP 请求动作新增“复用浏览器会话”开关（中英双语），提示携带当前环境 Cookie。
 
-第二十六批验证：`pnpm check` 通过（类型、Lint、构建与架构/i18n 约定），19 个测试文件 155 项测试通过；collection 新增用例覆盖 `useSession` 透传到 HTTP 端口、未启用时不出现该标志（保持既有摘要）。2026-09-16 补：新增 Electron 回归 `session-request.spec.ts`，在真实 Chromium + 本地 Cookie 闸门站点验证登录态采集（先经嵌入式浏览器 /login 种下 Profile Cookie）：`useSession` 游标请求携带会话 Cookie 通过闸门完成三页采集，隔离请求未带 Cookie 以 `REQUEST_FAILED` 失败。首轮回归暴露真实缺陷——`net.request({ session })` 不会自动附带会话 Cookie，必须显式 `useSessionCookies: true`，已在 `HttpHost` 修复；全套 Electron 回归 14 通过 1 跳过（真实外网站点用例）。真实外网与发行验收本批未重跑。
+2026-09-16 第二十六批验证：`pnpm check` 通过（类型、Lint、构建与架构/i18n 约定），19 个测试文件 155 项测试通过；collection 新增用例覆盖 `useSession` 透传到 HTTP 端口、未启用时不出现该标志（保持既有摘要）。2026-09-16 补：新增 Electron 回归 `session-request.spec.ts`，在真实 Chromium + 本地 Cookie 闸门站点验证登录态采集（先经嵌入式浏览器 /login 种下 Profile Cookie）：`useSession` 游标请求携带会话 Cookie 通过闸门完成三页采集，隔离请求未带 Cookie 以 `REQUEST_FAILED` 失败。首轮回归暴露真实缺陷——`net.request({ session })` 不会自动附带会话 Cookie，必须显式 `useSessionCookies: true`，已在 `HttpHost` 修复；全套 Electron 回归 14 通过 1 跳过（真实外网站点用例）。真实外网与发行验收本批未重跑。
+
+2026-09-16 第二十七批：实现"服务与交付"Webhook 可靠投递——持久 outbox。契约层新增 webhook delivery 模型与 Schema；网关新增 `WebhookOutbox`：投递事件（任务终态回调）持久化落盘，独立循环按指数退避重试（含 5xx/网络错误），达到上限放弃并标记，跨重启续投未完成条目；`submit` 接受 webhook 选项，任务进入终态后同一事务内入箱，`close` 等待在途投递完成。修复：outbox 仅在队列 start 时启动，避免残留死投递。
+
+第二十七批验证：`pnpm check` 通过（类型、Lint、构建与架构/i18n 约定）；单元测试覆盖投递成功、失败重试、放弃与跨重启续投（`queue.test.ts` / `debug-outbox.test.ts`）。Webhook 的 Electron 端到端与真实外网验收本批未重跑。
