@@ -35,6 +35,25 @@ export const quotesWorkflow: CollectionWorkflow = {
   },
   pagination: { next: ".next a", maxPages: 2 },
 };
+/**
+ * Example recipe for a TikTok profile page. The selectors are the stable
+ * `data-e2e` hooks TikTok ships for its own tests and were verified against a
+ * live profile. The video grid loads only via infinite scroll, so pagination
+ * scrolls the window to the bottom until no new cards appear.
+ */
+export const tiktokProfileWorkflow: CollectionWorkflow = {
+  ...emptyWorkflow,
+  extract: {
+    items: '[data-e2e="user-post-item"]',
+    fields: [
+      { name: "videoUrl", selector: 'a[href*="/video/"]', attribute: "href", required: true },
+      { name: "views", selector: '[data-e2e="video-views"]', attribute: "text", required: false },
+      { name: "thumbnail", selector: "img", attribute: "src", required: false },
+    ],
+  },
+  pagination: { scroll: { to: "bottom" }, maxPages: 10 },
+  dedupe: ["videoUrl"],
+};
 
 /** Serializes request headers to one `Name: value` line each for the editor textarea. */
 function headerLines(headers: HttpRequestSpec["headers"]): string {

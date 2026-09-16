@@ -166,6 +166,9 @@ export const zhCN = {
   flowRecording: "正在录制，请在下方网页操作。完成后结束录制并整理循环。",
   flowPresetLoaded: "已加载 Quotes 实验配置。它会采集前两页；结果以实际试跑为准。",
   flowQuotesPreset: "打开 Quotes 实验网站",
+  flowTiktokPreset: "打开 TikTok 主页示例",
+  flowTiktokPresetLoaded:
+    "已加载 TikTok 主页配置（种子账号只是占位，选择器对所有主页通用）。复用方式：把目标网址换成任意账号即可；外部调用可对每个任务单独传 targetUrl 换主页、传运行参数换关键词。",
   flowRecipeTitle: "可复用的采集流程",
   flowRecipeHint: "保存操作规则，换参数即可再次运行。每个实例独立保存自己的流程。",
   flowExecutable: "真实执行",
@@ -604,6 +607,9 @@ export const enUS: Record<MessageKey, string> = {
   flowPresetLoaded:
     "Loaded the Quotes experiment for two pages. Results require an actual test run.",
   flowQuotesPreset: "Open Quotes experiment",
+  flowTiktokPreset: "Open TikTok profile example",
+  flowTiktokPresetLoaded:
+    "Loaded the TikTok profile recipe (the seeded account is only a placeholder; the selectors apply to any profile). Reuse it by changing the target URL, or pass a per-job targetUrl for another profile and run parameters for other keywords.",
   flowRecipeTitle: "Reusable collection workflow",
   flowRecipeHint:
     "Save the rules, then run again with different parameters. Each instance owns its workflow.",

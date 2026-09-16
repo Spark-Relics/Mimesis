@@ -26,7 +26,12 @@ import { bridge, isDesktop } from "../../platform/bridge";
 import { errorMessageKey } from "../../shared/presentation";
 import { BrowserPanel } from "../browser/BrowserPanel";
 import { RunsPage } from "../runs/RunsPage";
-import { CollectionEditor, emptyWorkflow, quotesWorkflow } from "./CollectionEditor";
+import {
+  CollectionEditor,
+  emptyWorkflow,
+  quotesWorkflow,
+  tiktokProfileWorkflow,
+} from "./CollectionEditor";
 import { InstanceConfiguration } from "./InstanceConfiguration";
 
 const detailTabs = [
@@ -398,6 +403,17 @@ export function InstanceDetailPage({
                 }}
               >
                 {t("flowQuotesPreset")}
+              </Button>
+              <Button
+                disabled={disabled || recording}
+                onClick={() => {
+                  setUrl("https://www.tiktok.com/@_forexsignals_");
+                  setWorkflow(structuredClone(tiktokProfileWorkflow));
+                  onNavigate("https://www.tiktok.com/@_forexsignals_");
+                  setMessage(t("flowTiktokPresetLoaded"));
+                }}
+              >
+                {t("flowTiktokPreset")}
               </Button>
               <Button
                 tone="primary"
