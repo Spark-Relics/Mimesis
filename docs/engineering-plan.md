@@ -166,3 +166,5 @@ Mimesis 是运行在用户电脑上的企业级可编排采集网关。用户通
 2026-09-16 第二十五批：实现“请求与响应”动态游标（分页游标第二片）。`pagination` 新增第三种互斥模式 `{ cursor: { request, pattern }, maxPages }`：每页提取完成后执行 `request`（复用 `httpRequestSchema`，含重试/超时/状态匹配），用 `pattern`（合法正则，发布时校验）在响应体上取首个捕获组（无捕获组取整体匹配）作为下一页地址，以 navigate 步骤进入；无匹配以新终态 `cursor-exhausted` 停止（不标记 truncated），达到 maxPages 先停、不发多余请求。运行参数在 resolve 阶段烘焙进游标请求（`bakeRequest`，before 动作与游标请求共用），`{{response:name}}` 捕获在执行时替换；`parameterNames` 把游标请求的 URL/头部/正文占位符纳入参数收集与校验。旧已发布点击/URL 模式版本完全兼容（union 分支缺省不变）。桌面流程编辑器翻页方式下拉新增“动态游标”，提供游标请求网址与下一页正则输入（中英双语）。解释器把 before 序列与游标请求的执行统一为共享 `fetchWithRetry`，消除重复重试逻辑。
 
 第二十五批验证：`pnpm check` 通过（类型、Lint、构建、架构/i18n 约定），19 个测试文件 153 项测试通过；collection 新增用例覆盖“动态游标翻页（两次 request 步骤、按响应体地址 navigate、耗尽以 `cursor-exhausted` 停止、无点击动作）”与“达到 maxPages 先停且只发一次游标请求”。游标翻页的 Electron 端到端回归（真实 Chromium + 本地 API 站点）、浏览器会话关联与真实外网验收本批未重跑。
+
+2026-09-16 补：新增 Electron 回归 `cursor-pagination.spec.ts`，在真实 Chromium + 本地三页站点与游标 API 上验证：游标响应体地址逐页 navigate（记录按页序合并，每页一次 request 步骤、无任何分页点击）、耗尽以 `cursor-exhausted` 停止且不标记 truncated、maxPages 以 `page-limit` 先停且不多发游标请求。全套 Electron 回归 12 通过 1 跳过（真实外网站点用例）。浏览器会话关联与真实外网验收仍未重跑。
