@@ -7,7 +7,7 @@
   display: flex;
   align-items: center;
   gap: 38px;
-  padding: 0 32px;
+  padding: 0 0 0 32px;
   height: 68px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--line);
@@ -55,10 +55,26 @@
   display: none;
 }
 .topnav-runtime {
-  margin-left: auto;
   font-size: 11px;
   color: var(--muted);
   white-space: nowrap;
+}
+.workspace-topnav .window-controls {
+  margin-left: auto;
+  -webkit-app-region: no-drag;
+}
+.workspace-topnav .window-controls button {
+  width: 44px;
+  align-self: stretch;
+  color: #6e747d;
+}
+.workspace-topnav .window-controls button:hover {
+  color: var(--ink);
+  background: rgb(0 0 0 / 5%);
+}
+.workspace-topnav .window-controls .window-control-close:hover {
+  color: #fff;
+  background: #e5484d;
 }
 .enterprise-shell .workspace-shell {
   min-height: 0;

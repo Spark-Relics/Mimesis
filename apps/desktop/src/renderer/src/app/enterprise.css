@@ -122,10 +122,15 @@
   line-height: 1.6;
 }
 .enterprise-shell .topbar {
-  height: 64px;
+  height: 44px;
   padding-left: 32px;
-  border: 0;
-  background: var(--canvas);
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+}
+.enterprise-shell .topbar-right {
+  flex: 1;
+  justify-content: flex-end;
+  gap: 8px;
 }
 .enterprise-shell .breadcrumb {
   min-width: 0;
@@ -141,14 +146,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.enterprise-shell .window-controls button {
+.enterprise-shell .workspace-topnav .window-controls button {
   color: #65716d;
 }
-.enterprise-shell .window-controls button:hover {
+.enterprise-shell .workspace-topnav .window-controls button:hover {
   background: #e8eeea;
   color: var(--ink);
 }
-.enterprise-shell .window-controls .window-control-close:hover {
+.enterprise-shell .workspace-topnav .window-controls .window-control-close:hover {
   background: #bc4242;
   color: white;
 }

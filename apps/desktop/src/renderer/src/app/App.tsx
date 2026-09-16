@@ -184,6 +184,30 @@ export function App() {
           ))}
         </nav>
         <span className="topnav-runtime">{t(runtimeKey)}</span>
+        <div className="window-controls">
+          <button
+            type="button"
+            aria-label={t("minimize")}
+            onClick={() => controlWindow("minimize")}
+          >
+            <Minus size={14} />
+          </button>
+          <button
+            type="button"
+            aria-label={t("maximize")}
+            onClick={() => controlWindow("toggle-maximize")}
+          >
+            <Square size={11} />
+          </button>
+          <button
+            type="button"
+            className="window-control-close"
+            aria-label={t("close")}
+            onClick={() => controlWindow("close")}
+          >
+            <X size={14} />
+          </button>
+        </div>
       </header>
       <div className="workspace-shell">
         <header className="topbar">
@@ -204,32 +228,7 @@ export function App() {
               </span>
             )}
           </div>
-          <div className="topbar-right">
-            <div className="window-controls">
-              <button
-                type="button"
-                aria-label={t("minimize")}
-                onClick={() => controlWindow("minimize")}
-              >
-                <Minus size={14} />
-              </button>
-              <button
-                type="button"
-                aria-label={t("maximize")}
-                onClick={() => controlWindow("toggle-maximize")}
-              >
-                <Square size={11} />
-              </button>
-              <button
-                type="button"
-                className="window-control-close"
-                aria-label={t("close")}
-                onClick={() => controlWindow("close")}
-              >
-                <X size={14} />
-              </button>
-            </div>
-          </div>
+          <div className="topbar-right" />
         </header>
         <main className="main-content">
           {controller.workspace && (
