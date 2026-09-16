@@ -196,6 +196,12 @@ export class GatewayServer {
               return;
             }
           }
+          const redeliverMatch = /^\/v1\/jobs\/([^/]+)\/delivery\/retry$/u.exec(url.pathname);
+          if (redeliverMatch && request.method === "POST") {
+            const id = z.string().uuid().parse(redeliverMatch[1]);
+            json(response, 200, { delivery: await queue.redeliver(id) });
+            return;
+          }
           const match = /^\/v1\/jobs\/([^/]+)(?:\/(cancel|result|events))?$/u.exec(url.pathname);
           if (match) {
             const id = z.string().uuid().parse(match[1]);

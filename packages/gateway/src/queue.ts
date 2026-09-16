@@ -329,6 +329,31 @@ export class GatewayQueue {
     return structuredClone(entry);
   }
 
+  /**
+   * Re-queues a given-up (`failed`) webhook delivery for a fresh round of attempts
+   * without re-running the collection, restoring the full attempt budget. Only a
+   * failed entry can be redriven: `delivered` is terminal and `pending` is already
+   * scheduled. An unknown job or a job with no webhook throws NOT_FOUND.
+   */
+  async redeliver(id: string): Promise<GatewayDelivery> {
+    this.assertAvailable();
+    const entry = await this.change((next) => {
+      if (!next.jobs.some((job) => job.id === id)) throw new AppError("NOT_FOUND");
+      const delivery = next.deliveries?.find((item) => item.jobId === id);
+      if (!delivery) throw new AppError("NOT_FOUND");
+      if (delivery.status !== "failed") throw new GatewayError("CONFLICT");
+      delivery.status = "pending";
+      delivery.attempts = 0;
+      delivery.lastAttemptedAt = null;
+      delivery.deliveredAt = null;
+      delivery.lastStatusCode = null;
+      delivery.lastError = null;
+      return delivery;
+    });
+    this.startOutbox();
+    return entry;
+  }
+
   list(offset = 0, limit = 50): { jobs: GatewayJob[]; total: number } {
     this.assertAvailable();
     return {

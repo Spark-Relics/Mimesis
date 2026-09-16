@@ -237,6 +237,56 @@ describe("durable browser job queue", () => {
     await queue.close();
   });
 
+  it("redrives a given-up delivery with a fresh budget without re-running the job", async () => {
+    const repository = memoryRepository();
+    let calls = 0;
+    const fetchFn = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) return new Response("no", { status: 503 });
+      return new Response(null, { status: 200 });
+    });
+    const driver = executor();
+    const queue = await GatewayQueue.open(repository, driver, {
+      fetch: fetchFn as unknown as typeof fetch,
+    });
+    const job = await queue.submit(submission, null, { ...webhook, maxAttempts: 1 });
+    queue.start();
+    await vi.waitFor(() => expect(queue.delivery(job.job.id)?.status).toBe("failed"));
+    expect(queue.delivery(job.job.id)?.attempts).toBe(1);
+    const redriven = await queue.redeliver(job.job.id);
+    // The redriven entry restores the full budget and clears previous attempt evidence.
+    expect(redriven).toMatchObject({
+      status: "pending",
+      attempts: 0,
+      lastStatusCode: null,
+      lastError: null,
+      deliveredAt: null,
+    });
+    await vi.waitFor(() => expect(queue.delivery(job.job.id)?.status).toBe("delivered"));
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    // Redelivery never re-runs the collection.
+    expect(driver.execute).toHaveBeenCalledTimes(1);
+    await queue.close();
+  }, 15_000);
+
+  it("refuses to redrive a delivery that is not failed and unknown webhook jobs", async () => {
+    const queue = await GatewayQueue.open(memoryRepository(), executor(), {
+      fetch: (async () => new Response(null, { status: 200 })) as unknown as typeof fetch,
+    });
+    const hooked = await queue.submit(submission, null, webhook);
+    const plain = await queue.submit(submission);
+    await expect(queue.redeliver(plain.job.id)).rejects.toThrow("NOT_FOUND");
+    await expect(queue.redeliver("00000000-0000-4000-8000-000000000000")).rejects.toThrow(
+      "NOT_FOUND",
+    );
+    queue.start();
+    await vi.waitFor(() => expect(queue.delivery(hooked.job.id)?.status).toBe("delivered"));
+    // A delivered entry is terminal; a pending one is already scheduled.
+    await expect(queue.redeliver(hooked.job.id)).rejects.toThrow("CONFLICT");
+    await expect(queue.redeliver(plain.job.id)).rejects.toThrow("NOT_FOUND");
+    await queue.close();
+  });
+
   it("delivers succeeded job results to the webhook and records delivery evidence", async () => {
     const repository = memoryRepository();
     const bodies: string[] = [];

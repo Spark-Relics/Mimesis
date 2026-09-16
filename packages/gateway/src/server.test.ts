@@ -85,6 +85,42 @@ describe("local HTTP gateway", () => {
     expect(body.delivery).toBeNull();
   });
 
+  it("redrives a failed webhook delivery over HTTP and refuses a job without one", async () => {
+    const repository = memoryRepository();
+    const queue = await GatewayQueue.open(
+      repository,
+      { resolve: () => execution, execute: async () => completedRun() },
+      { fetch: (async () => new Response("no", { status: 503 })) as unknown as typeof fetch },
+    );
+    const server = await GatewayServer.listen({ token, port: 0 }, queue, () => [execution.instance]);
+    resources.push({ queue, server });
+    const submitJob = async (body: unknown) =>
+      (
+        await fetch(`http://127.0.0.1:${server.port}/v1/jobs`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        })
+      ).json();
+    const retry = (id: string) =>
+      fetch(`http://127.0.0.1:${server.port}/v1/jobs/${id}/delivery/retry`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    const { job } = await submitJob({
+      ...submission,
+      webhook: { url: "http://127.0.0.1:9/hook", maxAttempts: 1 },
+    });
+    queue.start();
+    await vi.waitFor(() => expect(queue.delivery(job.id)?.status).toBe("failed"));
+    const response = await retry(job.id);
+    expect(response.status).toBe(200);
+    expect((await response.json()).delivery).toMatchObject({ status: "pending", attempts: 0 });
+    // A job without a webhook has nothing to redrive.
+    const plain = await submitJob(submission);
+    expect((await retry(plain.job.id)).status).toBe(404);
+  }, 15_000);
+
   it("requires authentication on every route and rejects browser origins without exposing secrets", async () => {
     const { request } = await setup();
     for (const path of ["/v1/health", "/v1/jobs", "/v1/instances", "/unknown"]) {
