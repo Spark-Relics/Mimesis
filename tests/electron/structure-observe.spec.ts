@@ -66,6 +66,7 @@ test("observe page structure, highlight matched rows and apply the proposal", as
       .find((page) => page.url() === targetUrl);
     if (!browser) throw new Error("Missing embedded page");
 
+    await ui.locator(".instance-tab", { hasText: "配置采集流程" }).click();
     await ui.getByRole("button", { name: "识别当前页面", exact: true }).click();
     const lists = ui.getByRole("combobox", { name: "列表区域" });
     await expect(lists).toBeEnabled();
