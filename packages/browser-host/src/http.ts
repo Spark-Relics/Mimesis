@@ -29,12 +29,13 @@ export class HttpHost implements HttpPort {
     if (url.protocol !== "http:" && url.protocol !== "https:") throw new AppError("FORBIDDEN");
     signal.throwIfAborted();
     // Session-linked requests reuse profile cookies/storage for authenticated APIs.
+    // `useSessionCookies` is required: passing a session alone does not attach its cookies.
     let session: Electron.Session | undefined;
     if (request.useSession === true) session = this.sessionProvider?.();
     const client = net.request({
       method: request.method,
       url: url.href,
-      ...(session && { session }),
+      ...(session && { session, useSessionCookies: true }),
       ...(Object.keys(request.headers).length && { headers: request.headers }),
     });
     const timer = setTimeout(() => {
