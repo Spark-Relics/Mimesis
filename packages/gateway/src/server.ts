@@ -7,16 +7,45 @@ import { cleanResult, resultContentTypes, serializeResult } from "./results";
 const configSchema = z.object({
   token: z.string().regex(/^[\x21-\x7e]{32,256}$/u),
   port: z.number().int().min(0).max(65535),
+  rateLimit: z.number().int().min(0).max(10_000).optional(),
 });
 export type GatewayConfig = z.infer<typeof configSchema>;
 
 export function gatewayConfigFromEnv(env: NodeJS.ProcessEnv): GatewayConfig | undefined {
   if (env.CLAWLER_GATEWAY_TOKEN === undefined && env.CLAWLER_GATEWAY_PORT === undefined)
     return undefined;
+  const rateLimit = env.CLAWLER_GATEWAY_RATE_LIMIT;
+  let parsedRateLimit: number | undefined;
+  if (rateLimit !== undefined) parsedRateLimit = Number(rateLimit);
   return configSchema.parse({
     token: env.CLAWLER_GATEWAY_TOKEN,
     port: Number(env.CLAWLER_GATEWAY_PORT ?? "17840"),
+    rateLimit: parsedRateLimit,
   });
+}
+
+/** Fixed-window request limiter. Zero/undefined capacity means unlimited. */
+class RateLimiter {
+  private windowStart = 0;
+  private count = 0;
+
+  constructor(
+    private readonly limitPerSecond: number,
+    private readonly now: () => number = Date.now,
+  ) {}
+
+  /** Returns retry-after milliseconds when the request exceeds the window budget. */
+  take(): number | undefined {
+    if (this.limitPerSecond <= 0) return undefined;
+    const current = this.now();
+    if (current - this.windowStart >= 1000) {
+      this.windowStart = current;
+      this.count = 0;
+    }
+    this.count += 1;
+    if (this.count <= this.limitPerSecond) return undefined;
+    return Math.max(1, this.windowStart + 1000 - current);
+  }
 }
 
 class HttpError extends Error {
@@ -84,6 +113,7 @@ export class GatewayServer {
     listInstances: () => AutomationInstance[],
   ): Promise<GatewayServer> {
     const config = configSchema.parse(input);
+    const limiter = new RateLimiter(config.rateLimit ?? 0);
     const expected = createHash("sha256").update(`Bearer ${config.token}`).digest();
     const server = createServer(
       {
@@ -96,6 +126,11 @@ export class GatewayServer {
         response.setHeader("Cache-Control", "no-store");
         response.setHeader("X-Content-Type-Options", "nosniff");
         void (async () => {
+          const retryAfterMs = limiter.take();
+          if (retryAfterMs !== undefined) {
+            response.setHeader("Retry-After", String(Math.ceil(retryAfterMs / 1000)));
+            throw new HttpError(429, "RATE_LIMITED");
+          }
           if (request.headers.origin !== undefined) throw new HttpError(403, "FORBIDDEN");
           const actual = createHash("sha256")
             .update(request.headers.authorization ?? "")

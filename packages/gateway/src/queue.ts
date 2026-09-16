@@ -12,7 +12,7 @@ import {
   toErrorCode,
   webhookDeliverySchema,
 } from "@clawler/contracts";
-import { WebhookOutbox } from "./outbox";
+import { WebhookOutbox, type WebhookOutboxOptions } from "./outbox";
 import type { GatewayRepository } from "./repository";
 import { cleanResult } from "./results";
 
@@ -104,10 +104,9 @@ export class GatewayQueue {
             );
             if (!pending) return null;
             const job = this.state.jobs.find((entry) => entry.id === pending.jobId);
-            const result =
-              job?.run?.result && job.status === "succeeded"
-                ? cleanResult(job.run.result, job.submission.cleaning)
-                : null;
+            let result: unknown = null;
+            if (job?.run?.result && job.status === "succeeded")
+              result = cleanResult(job.run.result, job.submission.cleaning);
             if (!result) return null;
             return { entry: structuredClone(pending), payload: JSON.stringify(result) };
           },

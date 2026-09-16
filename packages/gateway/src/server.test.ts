@@ -157,4 +157,53 @@ describe("local HTTP gateway", () => {
     ])
       expect(() => gatewayConfigFromEnv(env)).toThrow();
   });
+
+  it("rate limits requests per second and recovers in the next window", async () => {
+    const repository = memoryRepository();
+    const queue = await GatewayQueue.open(repository, {
+      resolve: () => execution,
+      execute: async () => completedRun(),
+    });
+    const server = await GatewayServer.listen({ token, port: 0, rateLimit: 3 }, queue, () => [
+      execution.instance,
+    ]);
+    resources.push({ queue, server });
+    const request = (path: string) =>
+      fetch(`http://127.0.0.1:${server.port}${path}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    for (let index = 0; index < 3; index += 1)
+      expect((await request("/v1/health")).status).toBe(200);
+    const limited = await request("/v1/health");
+    expect(limited.status).toBe(429);
+    expect((await limited.json()).error.code).toBe("RATE_LIMITED");
+    const retryAfter = Number(limited.headers.get("Retry-After"));
+    expect(Number.isInteger(retryAfter)).toBe(true);
+    expect(retryAfter).toBeGreaterThanOrEqual(1);
+    await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000 + 50));
+    expect((await request("/v1/health")).status).toBe(200);
+  }, 15_000);
+
+  it("parses the optional rate limit environment variable and rejects malformed values", () => {
+    expect(
+      gatewayConfigFromEnv({ CLAWLER_GATEWAY_TOKEN: token, CLAWLER_GATEWAY_RATE_LIMIT: "50" }),
+    ).toEqual({
+      token,
+      port: 17840,
+      rateLimit: 50,
+    });
+    expect(
+      gatewayConfigFromEnv({ CLAWLER_GATEWAY_TOKEN: token, CLAWLER_GATEWAY_RATE_LIMIT: "0" }),
+    ).toEqual({
+      token,
+      port: 17840,
+      rateLimit: 0,
+    });
+    expect(() =>
+      gatewayConfigFromEnv({ CLAWLER_GATEWAY_TOKEN: token, CLAWLER_GATEWAY_RATE_LIMIT: "NaN" }),
+    ).toThrow();
+    expect(() =>
+      gatewayConfigFromEnv({ CLAWLER_GATEWAY_TOKEN: token, CLAWLER_GATEWAY_RATE_LIMIT: "-1" }),
+    ).toThrow();
+  });
 });

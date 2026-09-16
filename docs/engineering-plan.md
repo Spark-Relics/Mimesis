@@ -176,3 +176,7 @@ Mimesis 是运行在用户电脑上的企业级可编排采集网关。用户通
 2026-09-16 第二十七批：实现"服务与交付"Webhook 可靠投递——持久 outbox。契约层新增 webhook delivery 模型与 Schema；网关新增 `WebhookOutbox`：投递事件（任务终态回调）持久化落盘，独立循环按指数退避重试（含 5xx/网络错误），达到上限放弃并标记，跨重启续投未完成条目；`submit` 接受 webhook 选项，任务进入终态后同一事务内入箱，`close` 等待在途投递完成。修复：outbox 仅在队列 start 时启动，避免残留死投递。
 
 第二十七批验证：`pnpm check` 通过（类型、Lint、构建与架构/i18n 约定）；单元测试覆盖投递成功、失败重试、放弃与跨重启续投（`queue.test.ts` / `debug-outbox.test.ts`）。Webhook 的 Electron 端到端与真实外网验收本批未重跑。
+
+2026-09-16 第二十八批：实现"服务与交付"限流。网关配置新增可选 `rateLimit`（每秒请求数 0–10000，缺省/0 不限流，环境变量 `CLAWLER_GATEWAY_RATE_LIMIT`）；`GatewayServer` 内置固定窗口计数器：认证之后、路由分发之前逐请求计数，超出本秒预算即以 `RATE_LIMITED` 返回 429 并附整数秒 `Retry-After` 头，下一窗口自动恢复；不做请求排队或延迟。同时补上第二十七批遗留的 `WebhookOutboxOptions` 类型导入缺失（`tsc --noEmit` 曾失败）。
+
+第二十八批验证：`pnpm check` 通过（类型、Lint、构建与架构/i18n 约定），19 个测试文件 166 项测试通过；server 新增用例覆盖预算内放行、超出后 429＋`RATE_LIMITED`＋整数秒 `Retry-After`、下一窗口恢复，以及环境变量解析（合法值/0/NaN/负数拒绝）。限流未设置时行为与既有路由完全一致（既有用例未改动即通过）。
