@@ -36,17 +36,24 @@ export const quotesWorkflow: CollectionWorkflow = {
   pagination: { next: ".next a", maxPages: 2 },
 };
 /**
- * Example recipe for a TikTok profile page. The selectors are the stable
- * `data-e2e` hooks TikTok ships for its own tests and were verified against a
- * live profile. The video grid loads only via infinite scroll, so pagination
- * scrolls the window to the bottom until no new cards appear.
+ * Recipe for a TikTok profile page. Every selector is one of TikTok's own
+ * `data-e2e` hooks and was checked against a live, logged-out profile page.
+ * Each grid card is a single post link that also carries a view counter and a
+ * thumbnail image; those three are what this recipe collects. The caption is
+ * only present in the thumbnail's `alt` attribute, which the extraction
+ * attribute set (text/href/src/value) cannot read, so it is intentionally left
+ * out. The grid extends by window infinite scroll (no pagination controls), so
+ * scrolling to the bottom loads more cards until none are added or `maxPages`
+ * is reached. `missing: "row"` keeps a single lazily-rendered card without data
+ * from discarding the whole page.
  */
 export const tiktokProfileWorkflow: CollectionWorkflow = {
   ...emptyWorkflow,
   extract: {
     items: '[data-e2e="user-post-item"]',
+    missing: "row",
     fields: [
-      { name: "videoUrl", selector: 'a[href*="/video/"]', attribute: "href", required: true },
+      { name: "videoUrl", selector: "a", attribute: "href", required: true },
       { name: "views", selector: '[data-e2e="video-views"]', attribute: "text", required: false },
       { name: "thumbnail", selector: "img", attribute: "src", required: false },
     ],
