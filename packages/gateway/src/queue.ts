@@ -12,9 +12,9 @@ import {
   toErrorCode,
   webhookDeliverySchema,
 } from "@clawler/contracts";
+import { WebhookOutbox } from "./outbox";
 import type { GatewayRepository } from "./repository";
 import { cleanResult } from "./results";
-import { WebhookOutbox } from "./outbox";
 
 export class GatewayError extends Error {
   constructor(
@@ -83,7 +83,9 @@ export class GatewayQueue {
       options.maxArtifactBytes ?? 2 * 1024 * 1024 * 1024,
       options.fetch,
     );
-    if (state.deliveries?.length) queue.startOutbox();
+    // Never start the outbox loop here: running() is false until start() flips
+    // `started`, so the loop would exit immediately and the still-pending loop
+    // promise makes the later start() call skip the restart (dead deliveries).
     return queue;
   }
 
@@ -108,7 +110,7 @@ export class GatewayQueue {
             await this.change((next) => {
               if (!next.deliveries) next.deliveries = [];
               const current = next.deliveries.find((item) => item.jobId === entry.jobId);
-              if (!current || current.status !== "pending") return;
+              if (current?.status !== "pending") return;
               Object.assign(current, structuredClone(entry));
             });
           },
@@ -194,7 +196,7 @@ export class GatewayQueue {
       }
       // Keeping every job means the mutated snapshot is already the next durable state.
       let persisted: GatewayState = next;
-      if (remaining.length !== next.jobs.length) persisted = { schemaVersion: 1, jobs: remaining };
+      if (remaining.length !== next.jobs.length) persisted = { ...next, jobs: remaining };
       try {
         await this.repository.save(persisted, evicted);
       } catch (error) {

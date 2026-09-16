@@ -47,24 +47,22 @@ export class WebhookOutbox {
   }
 
   private async run(): Promise<void> {
-    let iter = 0;
     while (this.host.running()) {
       const next = this.host.nextPending();
-      if (iter++ < 5) console.log("outbox iter", iter, "pending:", next?.entry.jobId ?? null);
       if (!next) {
         await sleep(200);
         continue;
       }
       const { entry, payload } = next;
-      const dueIn = entry.lastAttemptedAt
-        ? Date.parse(entry.lastAttemptedAt) + this.backoffMs(entry.attempts) - Date.now()
-        : 0;
+      let dueIn = 0;
+      if (entry.lastAttemptedAt !== null) {
+        dueIn = Date.parse(entry.lastAttemptedAt) + this.backoffMs(entry.attempts) - Date.now();
+      }
       if (dueIn > 0) {
         // Re-check every second so new entries and shutdown are not blocked by a long backoff.
         await sleep(Math.min(dueIn, 1000));
         continue;
       }
-      console.log("outbox fetching attempt", entry.attempts + 1);
       let updated: GatewayDelivery = {
         ...entry,
         attempts: entry.attempts + 1,
@@ -87,12 +85,11 @@ export class WebhookOutbox {
           lastError: null,
         };
       } catch (error) {
-        updated = {
-          ...updated,
-          lastStatusCode: error instanceof WebhookHttpStatusError ? error.statusCode : null,
-          lastError:
-            error instanceof Error ? error.message.slice(0, 400) : "delivery attempt failed",
-        };
+        let lastStatusCode: number | null = null;
+        if (error instanceof WebhookHttpStatusError) lastStatusCode = error.statusCode;
+        let lastError = "delivery attempt failed";
+        if (error instanceof Error) lastError = error.message.slice(0, 400);
+        updated = { ...updated, lastStatusCode, lastError };
         if (updated.attempts >= entry.delivery.maxAttempts) updated.status = "failed";
       }
       // A commit rejection means storage failed; running() turns false and the loop exits.

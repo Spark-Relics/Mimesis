@@ -1,5 +1,9 @@
-import { AppError, type GatewayExecution, type GatewayState } from "@clawler/contracts";
-import { WebhookHttpStatusError } from "@clawler/contracts";
+import {
+  AppError,
+  type GatewayExecution,
+  type GatewayState,
+  WebhookHttpStatusError,
+} from "@clawler/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { completedRun, execution, memoryRepository, submission } from "./fixtures.test-support";
 import { GatewayQueue } from "./queue";
@@ -13,7 +17,7 @@ function executor() {
 
 type WithDeliveries = { deliveries?: Array<{ jobId: string; status: string }> };
 /** Reads the durable state persisted by the memory repository for a delivery entry. */
-function repositoryDelivery(repository: { stored?: GatewayState }, jobId: string) {
+function repositoryDelivery(repository: { stored?: GatewayState | undefined }, jobId: string) {
   return (repository.stored as (GatewayState & WithDeliveries) | undefined)?.deliveries?.find(
     (entry) => entry.jobId === jobId,
   );
@@ -221,10 +225,10 @@ describe("durable browser job queue", () => {
   it("delivers succeeded job results to the webhook and records delivery evidence", async () => {
     const repository = memoryRepository();
     const bodies: string[] = [];
-    const fetchFn = vi.fn(
-      async (_url: unknown, init?: RequestInit) =>
-        new Response((bodies.push(String(init?.body)), undefined), { status: 200 }),
-    );
+    const fetchFn = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(String(init?.body));
+      return new Response(null, { status: 200 });
+    });
     const queue = await GatewayQueue.open(repository, executor(), {
       fetch: fetchFn as unknown as typeof fetch,
     });
@@ -244,8 +248,6 @@ describe("durable browser job queue", () => {
     });
     await queue.close();
   });
-
-
 
   it("does not deliver for failed or cancelled jobs and leaves the outbox entry pending", async () => {
     const repository = memoryRepository();
@@ -291,6 +293,28 @@ describe("durable browser job queue", () => {
     await queue.close();
   });
 
+  it("keeps pending webhook deliveries of surviving jobs when retention eviction rebuilds the durable state", async () => {
+    const repository = memoryRepository();
+    const fetchFn = vi.fn(async () => new Response(null, { status: 503 }));
+    const driver = executor();
+    const queue = await GatewayQueue.open(repository, driver, {
+      fetch: fetchFn as unknown as typeof fetch,
+      maxStored: 2,
+    });
+    const first = await queue.submit(submission, null, webhook);
+    const second = await queue.submit(submission, null, webhook);
+    queue.start();
+    await vi.waitFor(() => expect(queue.get(first.job.id).status).toBe("succeeded"));
+    await vi.waitFor(() => expect(queue.get(second.job.id).status).toBe("succeeded"));
+    // A third submit triggers retention eviction of the oldest terminal job (maxStored = 2);
+    // the pending delivery of the surviving failed job must survive the state rebuild.
+    await queue.submit(submission);
+    expect(repository.stored?.jobs.map((job) => job.id)).not.toContain(first.job.id);
+    expect(repositoryDelivery(repository, second.job.id)?.status).toBe("pending");
+    expect(repository.stored?.deliveries?.map((entry) => entry.jobId)).toEqual([second.job.id]);
+    await queue.close();
+  });
+
   it("resumes pending webhook delivery after a restart without resending the archived job", async () => {
     const repository = memoryRepository();
     const succeed = vi.fn(async () => new Response(null, { status: 204 }));
@@ -303,12 +327,14 @@ describe("durable browser job queue", () => {
       expect(repositoryDelivery(repository, submitted.job.id)?.status).toBe("delivered"),
     );
     await original.close();
-    // Simulate a new pending delivery created just before a crash.
+    // Simulate a new pending delivery created just before a crash. This mirrors
+    // the durable shape: submit() persists the webhookDeliverySchema-parsed
+    // delivery, including its timeoutMs/maxAttempts defaults.
     const state = repository.stored as GatewayState;
     state.deliveries = [
       {
         jobId: submitted.job.id,
-        delivery: webhook,
+        delivery: { ...webhook, headers: {}, timeoutMs: 10_000, maxAttempts: 8 },
         attempts: 1,
         status: "pending",
         lastAttemptedAt: new Date().toISOString(),
@@ -339,7 +365,7 @@ describe("durable browser job queue", () => {
     queue.start();
     const first = await queue.submit(submission, null, webhook);
     await vi.waitFor(() => expect(queue.get(first.job.id).status).toBe("succeeded"));
-    const second = await queue.submit(submission);
+    await queue.submit(submission);
     await vi.waitFor(() => expect(() => queue.get(first.job.id)).toThrow("NOT_FOUND"));
     expect(repository.stored?.deliveries ?? []).toHaveLength(0);
     expect(queue.health().deliveriesPending).toBe(0);

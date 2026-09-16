@@ -456,10 +456,7 @@ const webhookUrlSchema = z
   .string()
   .url()
   .max(4096)
-  .refine(
-    (value) => /^https?:\/\//iu.test(value),
-    { message: "Webhook URL must be http(s)" },
-  );
+  .refine((value) => /^https?:\/\//iu.test(value), { message: "Webhook URL must be http(s)" });
 export const webhookDeliverySchema = z.strictObject({
   url: webhookUrlSchema,
   headers: z
@@ -491,9 +488,7 @@ export const gatewayDeliveryHttpErrorSchema = z
   .refine((error): error is WebhookHttpStatusError => error instanceof WebhookHttpStatusError);
 /** Delivery attempt got an HTTP response with a non-2xx status code. */
 export class WebhookHttpStatusError extends Error {
-  constructor(
-    public readonly statusCode: number,
-  ) {
+  constructor(public readonly statusCode: number) {
     super(`Webhook responded ${statusCode}`);
   }
 }
