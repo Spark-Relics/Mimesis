@@ -1,5 +1,6 @@
 import {
   AppError,
+  type GatewayDelivery,
   type GatewayExecution,
   type GatewayJob,
   type GatewayState,
@@ -9,8 +10,11 @@ import {
   type Run,
   runSchema,
   toErrorCode,
+  webhookDeliverySchema,
 } from "@clawler/contracts";
 import type { GatewayRepository } from "./repository";
+import { cleanResult } from "./results";
+import { WebhookOutbox } from "./outbox";
 
 export class GatewayError extends Error {
   constructor(
@@ -31,6 +35,7 @@ export interface GatewayQueueOptions {
   maxStored?: number;
   /** Byte budget for archived artifacts; oldest terminal jobs are evicted once exceeded. */
   maxArtifactBytes?: number;
+  fetch?: typeof fetch;
 }
 
 export class GatewayQueue {
@@ -41,6 +46,8 @@ export class GatewayQueue {
   private storageFailed = false;
   private started = false;
 
+  private outbox: WebhookOutbox | undefined;
+
   private constructor(
     private readonly repository: GatewayRepository,
     private readonly executor: GatewayExecutor,
@@ -48,6 +55,7 @@ export class GatewayQueue {
     private readonly maxPending: number,
     private readonly maxStored: number,
     private readonly maxArtifactBytes: number,
+    private readonly fetchFn?: typeof fetch,
   ) {}
 
   static async open(
@@ -66,24 +74,62 @@ export class GatewayQueue {
     }
     const maxStored = options.maxStored ?? 1000;
     await repository.save(state);
-    return new GatewayQueue(
+    const queue = new GatewayQueue(
       repository,
       executor,
       state,
       options.maxPending ?? 100,
       maxStored,
       options.maxArtifactBytes ?? 2 * 1024 * 1024 * 1024,
+      options.fetch,
     );
+    if (state.deliveries?.length) queue.startOutbox();
+    return queue;
+  }
+
+  private startOutbox(): void {
+    if (!this.outbox) {
+      this.outbox = new WebhookOutbox(
+        {
+          nextPending: () => {
+            const pending = (this.state.deliveries ?? []).find(
+              (entry) => entry.status === "pending",
+            );
+            if (!pending) return null;
+            const job = this.state.jobs.find((entry) => entry.id === pending.jobId);
+            const result =
+              job?.run?.result && job.status === "succeeded"
+                ? cleanResult(job.run.result, job.submission.cleaning)
+                : null;
+            if (!result) return null;
+            return { entry: structuredClone(pending), payload: JSON.stringify(result) };
+          },
+          commit: async (entry) => {
+            await this.change((next) => {
+              if (!next.deliveries) next.deliveries = [];
+              const current = next.deliveries.find((item) => item.jobId === entry.jobId);
+              if (!current || current.status !== "pending") return;
+              Object.assign(current, structuredClone(entry));
+            });
+          },
+          running: () => this.started && !this.closing && !this.storageFailed,
+        },
+        this.fetchFn ? { fetch: this.fetchFn } : {},
+      );
+    }
+    this.outbox.start();
   }
 
   start(): void {
     this.assertAvailable();
     this.started = true;
     this.kick();
+    if (this.state.deliveries?.length) this.startOutbox();
   }
 
   health() {
     const bytes = this.repository.artifactBytesByJob();
+    const deliveries = this.state.deliveries ?? [];
     return {
       ready: !this.closing && !this.storageFailed,
       queued: this.state.jobs.filter((job) => job.status === "queued").length,
@@ -94,6 +140,7 @@ export class GatewayQueue {
       artifactBytes: [...bytes.values()].reduce((total, value) => total + value, 0),
       maxArtifactBytes: this.maxArtifactBytes,
       concurrency: 1,
+      deliveriesPending: deliveries.filter((entry) => entry.status === "pending").length,
     };
   }
 
@@ -141,6 +188,10 @@ export class GatewayQueue {
         archiveBytes -= bytesByJob.get(victim.id) ?? 0;
       }
       const remaining = next.jobs.filter((job) => !evicted.includes(job.id));
+      if (remaining.length !== next.jobs.length) {
+        if (next.deliveries)
+          next.deliveries = next.deliveries.filter((entry) => !evicted.includes(entry.jobId));
+      }
       // Keeping every job means the mutated snapshot is already the next durable state.
       let persisted: GatewayState = next;
       if (remaining.length !== next.jobs.length) persisted = { schemaVersion: 1, jobs: remaining };
@@ -161,9 +212,11 @@ export class GatewayQueue {
   async submit(
     input: unknown,
     idempotencyKey: string | null = null,
+    webhook: unknown = null,
   ): Promise<{ job: GatewayJob; replayed: boolean }> {
     this.assertAvailable();
     const submission = gatewaySubmitSchema.parse(input);
+    const delivery = webhook === null ? null : webhookDeliverySchema.parse(webhook);
     if (idempotencyKey !== null && !/^[\x21-\x7e]{1,128}$/u.test(idempotencyKey))
       throw new AppError("INVALID_INPUT");
     const result = await this.change((next) => {
@@ -200,6 +253,20 @@ export class GatewayQueue {
         run: null,
       };
       next.jobs.push(job);
+      if (delivery) {
+        const entry: GatewayDelivery = {
+          jobId: job.id,
+          delivery,
+          attempts: 0,
+          status: "pending",
+          lastAttemptedAt: null,
+          deliveredAt: null,
+          lastStatusCode: null,
+          lastError: null,
+        };
+        if (!next.deliveries) next.deliveries = [];
+        next.deliveries.push(entry);
+      }
       return { job, replayed: false };
     });
     this.kick();
@@ -314,6 +381,11 @@ export class GatewayQueue {
         }
         job.finishedAt = new Date().toISOString();
         await this.archive(job);
+        if (
+          job.status === "succeeded" &&
+          next.deliveries?.some((entry) => entry.jobId === job.id && entry.status === "pending")
+        )
+          this.startOutbox();
       });
       this.active = undefined;
       if (busy && !this.closing) await new Promise((resolve) => setTimeout(resolve, 200));
@@ -325,5 +397,6 @@ export class GatewayQueue {
     this.active?.controller.abort(new AppError("CANCELLED"));
     await this.worker;
     await this.writes;
+    await this.outbox?.stop();
   }
 }

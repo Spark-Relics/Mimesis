@@ -117,10 +117,15 @@ export class GatewayServer {
             return;
           }
           if (url.pathname === "/v1/jobs") {
-            if (request.method === "POST") {
-              const key = request.headers["idempotency-key"];
-              if (Array.isArray(key)) throw new AppError("INVALID_INPUT");
-              const result = await queue.submit(await readJson(request), key ?? null);
+          if (request.method === "POST") {
+            const key = request.headers["idempotency-key"];
+            if (Array.isArray(key)) throw new AppError("INVALID_INPUT");
+            const body = await readJson(request);
+            const webhook =
+              body !== null && typeof body === "object" && "webhook" in body
+                ? (body as { webhook: unknown }).webhook
+                : null;
+            const result = await queue.submit(body, key ?? null, webhook);
               response.setHeader("Location", `/v1/jobs/${result.job.id}`);
               let status = 202;
               if (result.replayed) status = 200;

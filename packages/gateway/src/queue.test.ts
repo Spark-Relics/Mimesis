@@ -1,4 +1,5 @@
 import { AppError, type GatewayExecution, type GatewayState } from "@clawler/contracts";
+import { WebhookHttpStatusError } from "@clawler/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { completedRun, execution, memoryRepository, submission } from "./fixtures.test-support";
 import { GatewayQueue } from "./queue";
@@ -8,6 +9,14 @@ function executor() {
     resolve: vi.fn(() => structuredClone(execution)),
     execute: vi.fn(async (_execution: GatewayExecution) => completedRun()),
   };
+}
+
+type WithDeliveries = { deliveries?: Array<{ jobId: string; status: string }> };
+/** Reads the durable state persisted by the memory repository for a delivery entry. */
+function repositoryDelivery(repository: { stored?: GatewayState }, jobId: string) {
+  return (repository.stored as (GatewayState & WithDeliveries) | undefined)?.deliveries?.find(
+    (entry) => entry.jobId === jobId,
+  );
 }
 
 describe("durable browser job queue", () => {
@@ -205,5 +214,141 @@ describe("durable browser job queue", () => {
     // The durable state never claimed the eviction happened.
     expect(repository.stored?.jobs.map((job) => job.id)).toContain(first.job.id);
     await queue.close();
+  });
+
+  const webhook = { url: "http://127.0.0.1:9/hook" };
+
+  it("delivers succeeded job results to the webhook and records delivery evidence", async () => {
+    const repository = memoryRepository();
+    const bodies: string[] = [];
+    const fetchFn = vi.fn(
+      async (_url: unknown, init?: RequestInit) =>
+        new Response((bodies.push(String(init?.body)), undefined), { status: 200 }),
+    );
+    const queue = await GatewayQueue.open(repository, executor(), {
+      fetch: fetchFn as unknown as typeof fetch,
+    });
+    const job = await queue.submit(submission, null, webhook);
+    queue.start();
+    await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(repositoryDelivery(repository, job.job.id)?.status).toBe("delivered"),
+    );
+    const payload = JSON.parse(bodies[0] ?? "{}");
+    // Cleaning defaults (trim + deduplicate) apply to the delivered payload.
+    expect(payload).toEqual({
+      title: "Catalog",
+      url: "https://example.com/",
+      headings: ["One"],
+      links: [{ text: "=SUM(1,2)", href: "https://example.com/a" }],
+    });
+    await queue.close();
+  });
+
+
+
+  it("does not deliver for failed or cancelled jobs and leaves the outbox entry pending", async () => {
+    const repository = memoryRepository();
+    const fetchFn = vi.fn(async () => new Response(null, { status: 200 }));
+    const driver = executor();
+    driver.execute.mockRejectedValueOnce(new AppError("INTERNAL"));
+    const queue = await GatewayQueue.open(repository, driver, {
+      fetch: fetchFn as unknown as typeof fetch,
+    });
+    const first = await queue.submit(submission, null, webhook);
+    const second = await queue.submit(submission, null, webhook);
+    queue.start();
+    await vi.waitFor(() => expect(queue.get(first.job.id).status).toBe("failed"));
+    await queue.cancel(second.job.id);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(repositoryDelivery(repository, first.job.id)?.status).toBe("pending");
+    await queue.close();
+  });
+
+  it("retries failed webhook attempts with the committed attempt count and gives up at maxAttempts", async () => {
+    const repository = memoryRepository();
+    const fetchFn = vi.fn(async () => new Response("no", { status: 503 }));
+    const queue = await GatewayQueue.open(repository, executor(), {
+      fetch: fetchFn as unknown as typeof fetch,
+    });
+    const job = await queue.submit(submission, null, { ...webhook, maxAttempts: 2 });
+    queue.start();
+    await vi.waitFor(() =>
+      expect(repositoryDelivery(repository, job.job.id)?.status).toBe("failed"),
+    );
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    const entry = repositoryDelivery(repository, job.job.id);
+    expect(entry?.attempts).toBe(2);
+    expect(entry?.lastStatusCode).toBe(503);
+    await queue.close();
+  });
+
+  it("rejects non-http webhook URLs at submit", async () => {
+    const queue = await GatewayQueue.open(memoryRepository(), executor());
+    await expect(queue.submit(submission, null, { url: "file:///etc/passwd" })).rejects.toThrow();
+    expect(queue.list().total).toBe(0);
+    await queue.close();
+  });
+
+  it("resumes pending webhook delivery after a restart without resending the archived job", async () => {
+    const repository = memoryRepository();
+    const succeed = vi.fn(async () => new Response(null, { status: 204 }));
+    const original = await GatewayQueue.open(repository, executor(), {
+      fetch: succeed as unknown as typeof fetch,
+    });
+    const submitted = await original.submit(submission, null, webhook);
+    original.start();
+    await vi.waitFor(() =>
+      expect(repositoryDelivery(repository, submitted.job.id)?.status).toBe("delivered"),
+    );
+    await original.close();
+    // Simulate a new pending delivery created just before a crash.
+    const state = repository.stored as GatewayState;
+    state.deliveries = [
+      {
+        jobId: submitted.job.id,
+        delivery: webhook,
+        attempts: 1,
+        status: "pending",
+        lastAttemptedAt: new Date().toISOString(),
+        deliveredAt: null,
+        lastStatusCode: 503,
+        lastError: "service unavailable",
+      },
+    ];
+    const retry = vi.fn(async () => new Response(null, { status: 204 }));
+    const restored = await GatewayQueue.open(repository, executor(), {
+      fetch: retry as unknown as typeof fetch,
+    });
+    restored.start();
+    await vi.waitFor(() =>
+      expect(repositoryDelivery(repository, submitted.job.id)?.status).toBe("delivered"),
+    );
+    expect(retry).toHaveBeenCalledTimes(1);
+    await restored.close();
+  });
+
+  it("drops outbox entries when retention evicts their job", async () => {
+    const repository = memoryRepository();
+    const queue = await GatewayQueue.open(repository, executor(), {
+      maxPending: 10,
+      maxStored: 1,
+      fetch: (async () => new Response(null, { status: 503 })) as unknown as typeof fetch,
+    });
+    queue.start();
+    const first = await queue.submit(submission, null, webhook);
+    await vi.waitFor(() => expect(queue.get(first.job.id).status).toBe("succeeded"));
+    const second = await queue.submit(submission);
+    await vi.waitFor(() => expect(() => queue.get(first.job.id)).toThrow("NOT_FOUND"));
+    expect(repository.stored?.deliveries ?? []).toHaveLength(0);
+    expect(queue.health().deliveriesPending).toBe(0);
+    await queue.close();
+  });
+
+  it("surfaces a WebhookHttpStatusError carrying the response status", () => {
+    const error = new WebhookHttpStatusError(502);
+    expect(error.statusCode).toBe(502);
+    expect(error.message).toContain("502");
   });
 });

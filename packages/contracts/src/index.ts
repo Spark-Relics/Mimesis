@@ -451,6 +451,52 @@ export const gatewaySubmitSchema = z.strictObject({
     .default({ trim: true, deduplicate: true }),
 });
 export type GatewaySubmission = z.infer<typeof gatewaySubmitSchema>;
+/** Reliable webhook delivery persisted with the job (outbox). http/https only. */
+const webhookUrlSchema = z
+  .string()
+  .url()
+  .max(4096)
+  .refine(
+    (value) => /^https?:\/\//iu.test(value),
+    { message: "Webhook URL must be http(s)" },
+  );
+export const webhookDeliverySchema = z.strictObject({
+  url: webhookUrlSchema,
+  headers: z
+    .record(z.string().min(1).max(400), z.string().max(4000))
+    .refine((headers) => Object.keys(headers).length <= 32, {
+      message: "Too many webhook headers",
+    })
+    .default({}),
+  /** Max failed delivery attempts before the outbox entry becomes permanent-failed. Default 8. */
+  maxAttempts: z.number().int().min(1).max(20).default(8),
+  /** Per-attempt timeout in ms. Default 10s, capped at 60s. */
+  timeoutMs: z.number().int().min(100).max(60_000).default(10_000),
+});
+export type WebhookDelivery = z.infer<typeof webhookDeliverySchema>;
+export const gatewayDeliverySchema = z.object({
+  jobId: z.string().uuid(),
+  delivery: webhookDeliverySchema,
+  /** Attempts whose request was actually sent (network errors and non-2xx count). */
+  attempts: z.number().int().min(0),
+  status: z.enum(["pending", "delivered", "failed"]),
+  lastAttemptedAt: z.string().datetime().nullable(),
+  deliveredAt: z.string().datetime().nullable(),
+  lastStatusCode: z.number().int().min(100).max(599).nullable(),
+  lastError: z.string().max(400).nullable(),
+});
+export type GatewayDelivery = z.infer<typeof gatewayDeliverySchema>;
+export const gatewayDeliveryHttpErrorSchema = z
+  .instanceof(Error)
+  .refine((error): error is WebhookHttpStatusError => error instanceof WebhookHttpStatusError);
+/** Delivery attempt got an HTTP response with a non-2xx status code. */
+export class WebhookHttpStatusError extends Error {
+  constructor(
+    public readonly statusCode: number,
+  ) {
+    super(`Webhook responded ${statusCode}`);
+  }
+}
 /** Resolved immutable snapshot a job executes against. Absent only for jobs persisted before version binding existed. */
 export const versionBindingSchema = z.object({
   versionId: z.string().uuid(),
@@ -487,6 +533,8 @@ export const gatewayStateSchema = z
   .object({
     schemaVersion: z.literal(1),
     jobs: z.array(gatewayJobSchema),
+    /** Outbox entries for webhook delivery. Absent in states persisted before deliveries existed. */
+    deliveries: z.array(gatewayDeliverySchema).optional(),
   })
   .superRefine((state, context) => {
     const ids = new Set<string>();
@@ -498,6 +546,12 @@ export const gatewayStateSchema = z
       if (job.idempotencyKey !== null) keys.add(job.idempotencyKey);
       if (job.submission.instanceId !== job.execution.instance.id)
         context.addIssue({ code: "custom", message: "Job instance mismatch" });
+    }
+    const deliveryIds = new Set<string>();
+    for (const delivery of state.deliveries ?? []) {
+      if (deliveryIds.has(delivery.jobId) || !ids.has(delivery.jobId))
+        context.addIssue({ code: "custom", message: "Duplicate or orphan delivery" });
+      deliveryIds.add(delivery.jobId);
     }
   });
 export type GatewayState = z.infer<typeof gatewayStateSchema>;
