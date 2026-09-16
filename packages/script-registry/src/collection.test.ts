@@ -277,6 +277,61 @@ describe("reusable collection interpreter", () => {
     expect(result.records).toEqual([{ name: "A" }]);
   });
 
+  it("forwards useSession to the HTTP port for session-bound requests", async () => {
+    const { ctx, http } = fixture([[{ name: "A" }]]);
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [
+        {
+          kind: "request",
+          request: {
+            method: "GET",
+            url: "https://api.example.com/me",
+            headers: {},
+            timeoutMs: 5000,
+            expectStatus: 200,
+            useSession: true,
+          },
+        },
+      ],
+      pagination: null,
+    };
+    await collectPages(ctx, { url: "https://example.com", workflow });
+    expect(http.fetch).toHaveBeenCalledWith(
+      expect.objectContaining({ useSession: true }),
+      expect.any(Number),
+      expect.any(Number),
+      expect.anything(),
+    );
+  });
+
+  it("omits useSession for isolated requests so the flag stays opt-in", async () => {
+    const { ctx, http } = fixture([[{ name: "A" }]]);
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [
+        {
+          kind: "request",
+          request: {
+            method: "GET",
+            url: "https://api.example.com/public",
+            headers: {},
+            timeoutMs: 5000,
+            expectStatus: 200,
+          },
+        },
+      ],
+      pagination: null,
+    };
+    await collectPages(ctx, { url: "https://example.com", workflow });
+    expect(http.fetch).toHaveBeenCalledWith(
+      expect.not.objectContaining({ useSession: expect.anything() }),
+      expect.any(Number),
+      expect.any(Number),
+      expect.anything(),
+    );
+  });
+
   it("stops retrying once attempts are exhausted and fails the step", async () => {
     const { ctx, http } = fixture([[{ name: "A" }]]);
     let calls = 0;

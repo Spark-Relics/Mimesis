@@ -350,6 +350,21 @@ export function CollectionEditor({
                       action(index, { ...entry, request });
                     }}
                   />
+                  <label className="workflow-check">
+                    <input
+                      type="checkbox"
+                      checked={entry.request.useSession === true}
+                      disabled={disabled}
+                      onChange={(event) => {
+                        const request = { ...entry.request };
+                        // Unchecked drops the key so isolated requests keep their old digest.
+                        if (event.target.checked) request.useSession = true;
+                        else delete request.useSession;
+                        action(index, { ...entry, request });
+                      }}
+                    />
+                    <span>{t("flowRequestUseSession")}</span>
+                  </label>
                   <textarea
                     aria-label={t("flowRequestHeaders")}
                     placeholder={t("flowRequestHeadersPlaceholder")}

@@ -45,6 +45,7 @@ export class BrowserHost implements BrowserPort {
   }
   private readonly views = new Map<string, WebContentsView>();
   private current: WebContentsView | undefined;
+  private currentProfileId: string | undefined;
   private bounds: BrowserBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
 
   constructor(private readonly window: BrowserWindow) {}
@@ -56,6 +57,7 @@ export class BrowserHost implements BrowserPort {
       profileSession.setPermissionRequestHandler((_contents, _permission, callback) =>
         callback(false),
       );
+      profileSession.setPermissionCheckHandler(() => false);
       profileSession.setPermissionCheckHandler(() => false);
       if (!configuredProfiles.has(profile.id))
         profileSession.protocol.handle("clawler-demo", (request) => {
@@ -98,8 +100,17 @@ export class BrowserHost implements BrowserPort {
     }
     if (this.current) this.window.contentView.removeChildView(this.current);
     this.current = view;
+    this.currentProfileId = profile.id;
     this.window.contentView.addChildView(view);
     this.setBounds(this.bounds);
+  }
+
+  /** Session of the currently selected profile, for HTTP requests bound to the browser environment. */
+  currentSession(): Electron.Session | undefined {
+    if (!this.currentProfileId) return undefined;
+    const view = this.views.get(this.currentProfileId);
+    if (!view || view.webContents.isDestroyed()) return undefined;
+    return view.webContents.session;
   }
 
   setBounds(bounds: BrowserBounds): void {

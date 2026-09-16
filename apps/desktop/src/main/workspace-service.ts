@@ -53,7 +53,7 @@ export class WorkspaceService {
   ) {
     this.state = state;
     this.host = new BrowserHost(window);
-    const http = new HttpHost();
+    const http = new HttpHost(() => this.host.currentSession());
     this.runner = new TaskRunner(this.host, 30_000, http);
     this.dryRunner = new TaskRunner(this.host, 60_000, http);
     const emitRun = (run: Run) => {

@@ -93,6 +93,11 @@ export const httpRequestSchema = z.strictObject({
       maxLength: z.number().int().min(1).max(64_000).default(64_000),
     })
     .optional(),
+  /**
+   * Send the request from the current browser profile session so cookies and
+   * other session state (login) apply. Absent means an isolated request.
+   */
+  useSession: z.boolean().optional(),
 });
 export const workflowActionSchema = z.discriminatedUnion("kind", [
   z.strictObject({

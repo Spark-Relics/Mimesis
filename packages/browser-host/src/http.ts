@@ -4,8 +4,17 @@ import { net } from "electron";
 
 /** Privileged HTTP adapter: scripts describe requests, only the host performs them. */
 export class HttpHost implements HttpPort {
+  /** Resolves the active browser profile session; absent means requests stay isolated. */
+  constructor(private readonly sessionProvider?: () => Electron.Session | undefined) {}
+
   async fetch(
-    request: { method: string; url: string; headers: Record<string, string>; body?: string },
+    request: {
+      method: string;
+      url: string;
+      headers: Record<string, string>;
+      body?: string;
+      useSession?: boolean;
+    },
     timeoutMs: number,
     maxBytes: number,
     signal: AbortSignal,
@@ -19,9 +28,13 @@ export class HttpHost implements HttpPort {
     if (url.username || url.password) throw new AppError("INVALID_INPUT");
     if (url.protocol !== "http:" && url.protocol !== "https:") throw new AppError("FORBIDDEN");
     signal.throwIfAborted();
+    // Session-linked requests reuse profile cookies/storage for authenticated APIs.
+    let session: Electron.Session | undefined;
+    if (request.useSession === true) session = this.sessionProvider?.();
     const client = net.request({
       method: request.method,
       url: url.href,
+      ...(session && { session }),
       ...(Object.keys(request.headers).length && { headers: request.headers }),
     });
     const timer = setTimeout(() => {

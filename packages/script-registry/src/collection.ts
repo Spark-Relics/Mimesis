@@ -280,6 +280,7 @@ export async function collectPages(
         Object.entries(spec.headers).map(([key, value]) => [key, substituteCaptures(value)]),
       ),
       ...(spec.body !== undefined && { body: substituteCaptures(spec.body) }),
+      ...(spec.useSession && { useSession: true }),
     };
     // Bounded retry: a failed attempt (network/timeout/status) is replayed until
     // attempts run out; cancellation aborts the loop rather than retrying.

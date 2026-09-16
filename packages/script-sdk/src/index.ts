@@ -37,7 +37,14 @@ export interface BrowserPort {
 export interface HttpPort {
   /** `expectStatus`/size bounding happens at the caller; this only performs a bounded fetch. */
   fetch(
-    request: { method: string; url: string; headers: Record<string, string>; body?: string },
+    request: {
+      method: string;
+      url: string;
+      headers: Record<string, string>;
+      body?: string;
+      /** When true, the host should send the request from the active browser profile session. */
+      useSession?: boolean;
+    },
     timeoutMs: number,
     maxBytes: number,
     signal: AbortSignal,
