@@ -4,14 +4,13 @@ import { AppError, type AutomationInstance, toErrorCode, z } from "@clawler/cont
 import { GatewayError, type GatewayQueue } from "./queue";
 import { cleanResult, resultContentTypes, serializeResult } from "./results";
 
+const credential = z.string().regex(/^[\x21-\x7e]{32,256}$/u);
 const configSchema = z.object({
-  token: z.string().regex(/^[\x21-\x7e]{32,256}$/u),
+  token: credential,
   port: z.number().int().min(0).max(65535),
   rateLimit: z.number().int().min(0).max(10_000).optional(),
-  previousToken: z
-    .string()
-    .regex(/^[\x21-\x7e]{32,256}$/u)
-    .optional(),
+  previousToken: credential.optional(),
+  readOnlyToken: credential.optional(),
 });
 export type GatewayConfig = z.infer<typeof configSchema>;
 
@@ -22,11 +21,13 @@ export function gatewayConfigFromEnv(env: NodeJS.ProcessEnv): GatewayConfig | un
   let parsedRateLimit: number | undefined;
   if (rateLimit !== undefined) parsedRateLimit = Number(rateLimit);
   const previousToken = env.CLAWLER_GATEWAY_PREVIOUS_TOKEN;
+  const readOnlyToken = env.CLAWLER_GATEWAY_READONLY_TOKEN;
   return configSchema.parse({
     token: env.CLAWLER_GATEWAY_TOKEN,
     port: Number(env.CLAWLER_GATEWAY_PORT ?? "17840"),
     rateLimit: parsedRateLimit,
     previousToken,
+    readOnlyToken,
   });
 }
 
@@ -128,6 +129,7 @@ export class GatewayServer {
     const limiter = new RateLimiter(config.rateLimit ?? 0);
     const expected = digestOf(config.token) as Buffer;
     const previous = digestOf(config.previousToken);
+    const readOnly = digestOf(config.readOnlyToken);
     const server = createServer(
       {
         maxHeaderSize: 16_384,
@@ -148,13 +150,17 @@ export class GatewayServer {
           const actual = createHash("sha256")
             .update(request.headers.authorization ?? "")
             .digest();
-          const authorized =
+          // A credential either grants read+write (token / rotation) or read only.
+          // Reading is any safe method; everything that mutates jobs requires write.
+          const canWrite =
             timingSafeEqual(actual, expected) ||
             (previous !== undefined && timingSafeEqual(actual, previous));
-          if (!authorized) {
+          const canRead = readOnly !== undefined && timingSafeEqual(actual, readOnly);
+          if (!canWrite && !canRead) {
             response.setHeader("WWW-Authenticate", "Bearer");
             throw new HttpError(401, "UNAUTHORIZED");
           }
+          if (!canWrite && request.method !== "GET") throw new HttpError(403, "FORBIDDEN");
           const url = new URL(request.url ?? "/", "http://127.0.0.1");
           if (request.method === "GET" && url.pathname === "/v1/health") {
             const health = queue.health();

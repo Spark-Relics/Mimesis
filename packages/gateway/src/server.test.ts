@@ -243,4 +243,68 @@ describe("local HTTP gateway", () => {
     expect((await request("Bearer previous-token-with-at-least-32-characters")).status).toBe(200);
     expect((await request("Bearer another-token-with-at-least-32-characters-x")).status).toBe(401);
   });
+
+  it("grants a read-only credential reads of every safe route and rejects mutations", async () => {
+    const readOnlyToken = "read-only-token-with-at-least-32-characters";
+    expect(
+      gatewayConfigFromEnv({
+        CLAWLER_GATEWAY_TOKEN: token,
+        CLAWLER_GATEWAY_READONLY_TOKEN: readOnlyToken,
+      }),
+    ).toEqual({
+      token,
+      port: 17840,
+      readOnlyToken,
+    });
+    expect(() =>
+      gatewayConfigFromEnv({
+        CLAWLER_GATEWAY_TOKEN: token,
+        CLAWLER_GATEWAY_READONLY_TOKEN: "short",
+      }),
+    ).toThrow();
+    const repository = memoryRepository();
+    const queue = await GatewayQueue.open(repository, {
+      resolve: () => execution,
+      execute: async () => completedRun(),
+    });
+    const server = await GatewayServer.listen({ token, port: 0, readOnlyToken }, queue, () => [
+      execution.instance,
+    ]);
+    resources.push({ queue, server });
+    const request = (path: string, init: RequestInit = {}) =>
+      fetch(`http://127.0.0.1:${server.port}${path}`, {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${readOnlyToken}`,
+          "Content-Type": "application/json",
+          ...init.headers,
+        },
+      });
+    const { job } = await (
+      await fetch(`http://127.0.0.1:${server.port}/v1/jobs`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(submission),
+      })
+    ).json();
+    // Every GET route stays reachable with the read-only credential.
+    for (const path of ["/v1/health", "/v1/instances", "/v1/jobs", `/v1/jobs/${job.id}`]) {
+      expect((await request(path)).status).toBe(200);
+    }
+    // Mutations are refused before touching the queue.
+    const submit = await request("/v1/jobs", {
+      method: "POST",
+      body: JSON.stringify(submission),
+    });
+    expect(submit.status).toBe(403);
+    expect((await submit.json()).error.code).toBe("FORBIDDEN");
+    const cancel = await request(`/v1/jobs/${job.id}/cancel`, { method: "POST" });
+    expect(cancel.status).toBe(403);
+    // The write token is unaffected and can still mutate.
+    const writeCancel = await fetch(`http://127.0.0.1:${server.port}/v1/jobs/${job.id}/cancel`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(writeCancel.status).toBe(200);
+  });
 });

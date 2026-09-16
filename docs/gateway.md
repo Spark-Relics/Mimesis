@@ -14,7 +14,11 @@ pnpm dev
 
 已有生产构建时可用 `pnpm start`。Token 必须是 32–256 个非空白 ASCII 字符，部署时应使用随机值，由调用方保存。未指定端口时使用 `17840`；`0` 可分配临时端口，实际地址输出到主进程日志，日志不输出 Token。只指定端口、弱 Token 或非法配置会令启动失败。
 
-全部接口要求 `Authorization: Bearer <token>`，仅监听 `127.0.0.1`，拒绝带 `Origin` 的请求，不开放浏览器 CORS。此入口供同机后端程序调用。跨机器入口、TLS 和租户权限需后续接入，本轮未增加公网监听或云中继。
+全部接口要求 `Authorization: Bearer <token>`，仅监听 `127.0.0.1`，拒绝带 `Origin` 的请求，不开放浏览器 CORS。此入口供同机后端程序调用。跨机器入口、TLS 和多租户隔离需后续接入，本轮未增加公网监听或云中继。
+
+### 能力权限（只读凭据）
+
+可选设置 `CLAWLER_GATEWAY_READONLY_TOKEN`（同一 32–256 非空白 ASCII 规则）以提供只读凭据：使用该凭据只能访问安全方法（`GET`），任何会产生副作用的路由（`POST /v1/jobs`、`POST /v1/jobs/:id/cancel`）都以 403 `FORBIDDEN` 拒绝，且不进入队列；主 Token 与轮换中的旧 Token 仍具备读写权限。未配置该变量时行为与既有完全相同。适用于只读取状态与导出结果、不应提交或取消任务的调用方。
 
 ## 调用示例
 
@@ -62,7 +66,7 @@ if ($job.status -eq 'succeeded') {
 | `POST /v1/jobs/:id/cancel` | 等待任务直接取消；运行任务持久化取消请求，再通知执行器 |
 | `GET /v1/jobs/:id/result?format=json` | 成功任务的清洗结果；format 支持 json、csv、ndjson |
 
-错误统一为 `{ "error": { "code": "..." } }`。主要错误：400 `INVALID_INPUT`、401 `UNAUTHORIZED`、403 `FORBIDDEN`、404 `NOT_FOUND`、409 `CONFLICT` / `RESULT_NOT_READY`、413 `PAYLOAD_TOO_LARGE`、415 `UNSUPPORTED_MEDIA_TYPE`、429 `QUEUE_FULL`、503 `STORAGE_FAILED` / `UNAVAILABLE`。请求体上限 64 KiB，只接受未压缩 JSON。
+错误统一为 `{ "error": { "code": "..." } }`。主要错误：400 `INVALID_INPUT`、401 `UNAUTHORIZED`、403 `FORBIDDEN`（含只读凭据发起写操作）、404 `NOT_FOUND`、409 `CONFLICT` / `RESULT_NOT_READY`、413 `PAYLOAD_TOO_LARGE`、415 `UNSUPPORTED_MEDIA_TYPE`、429 `QUEUE_FULL` / `RATE_LIMITED`、503 `STORAGE_FAILED` / `UNAVAILABLE`。请求体上限 64 KiB，只接受未压缩 JSON。
 
 任务失败由 `job.status` 和 `job.errorCode` 表达，查询失败任务仍返回 200。状态为 `queued → running → succeeded | failed | cancelled`。取消是尽力中止，不能撤销已经发生的页面操作；运行任务取消后需继续轮询到终态。
 

@@ -36,7 +36,7 @@ Mimesis 是运行在用户电脑上的企业级可编排采集网关。用户通
 | 存储与产物 | 领域变更/证据 → 事务与受控文件 | SQLite 迁移、索引、事务、outbox、磁盘配额、保留清理、备份恢复、引用完整性 | 基础：独立线程 SQLite、JSON 迁移、分表事务与产物校验索引；归档字节配额、终态保留清理与离线备份恢复；outbox/巡检待实现 |
 | 账号与代理 | 账号、环境、代理配置 → 可租用资源 | 密钥保险箱、账号状态、独占租约、轮换、冷却、失效人工处理、代理验证与绑定 | 仅 Profile 基础；其余待实现 |
 | Agent | 目标、录制、观察和失败证据 → 建议与验证结果 | 模型配置、能力约束、上下文/费用预算、修复差异、试跑、显式发布、无模型降级 | 待实现；开发 agent 审查不算产品能力 |
-| 服务与交付 | 外部请求 → 版本化 API / 可靠交付 | 鉴权轮换、能力权限、契约、幂等、限流、SSE、Webhook outbox、独立交付重试 | 基础：回环 HTTP、Bearer、查询与导出 |
+| 服务与交付 | 外部请求 → 版本化 API / 可靠交付 | 鉴权轮换、能力权限、契约、幂等、限流、SSE、Webhook outbox、独立交付重试 | 基础：回环 HTTP、Bearer、查询与导出；已含旧 Token 轮换、只读凭据、固定窗口限流、SSE 事件、Webhook 持久 outbox 重试 |
 | 可观测性 | 任务事件 → 可定位问题 | 结构化日志、步骤证据、错误分类、指标、环境/队列/磁盘健康、脱敏导出 | 基础：Run 与 Step 状态 |
 | 便携与发行 | 发布包/旧工作区 → 可运行可升级安装 | 干净 Windows 验证、移动目录、中文路径、只读目录处理、开机/托盘、防休眠、退出清理、升级恢复 | 基础：设置页自定义目录、下一次启动复制校验、中文路径/Cookie/归档恢复；完整发行待验收 |
 | 设计系统 | 使用场景和状态 → 一致可操作界面 | 设计稿→真实组件→最小窗口/键盘/双语/错误状态/可用性验收 | V3 基础；完整交互体系仍需逐模块设计 |
@@ -184,3 +184,7 @@ Mimesis 是运行在用户电脑上的企业级可编排采集网关。用户通
 2026-09-16 补（滚动整合）：修复 9100053 引入滚动动作与滚动翻页后流程编辑器未接线的问题——`CollectionEditor` 的分页方式下拉补上“滚动加载（无限列表）”选项并渲染 `ScrollPaginationFields`；补全 `flowPaginationScroll`、`flowScrollTarget/-Example`、`flowScrollDirection`、`flowScrollBottom/-Top` 中英双语键；`before` 动作新增 `scroll` 按钮与方向选择器，选择器留空表示滚动整个页面（`to="top"` 时按契约忽略选择器）。
 
 2026-09-16 补验证：`pnpm typecheck` 通过，`pnpm test` 19 个测试文件 168 项测试全部通过。滚动执行链（`packages/script-registry/src/collection.ts`、`packages/browser-host/src/automation.ts`）此前已在 9100053 落地，本批仅补齐编辑器与文案。
+
+2026-09-16 第二十九批：实现"服务与交付"能力权限（只读凭据）。网关配置新增可选 `readOnlyToken`（环境变量 `CLAWLER_GATEWAY_READONLY_TOKEN`，与主 Token 同规则：32–256 非空白 ASCII）；认证改为区分读写权限——主 Token 与轮换中的旧 Token 授予读写，只读凭据仅授予安全方法（`GET`）。授权通过后，只读凭据对任何非 `GET` 请求在路由分发前即以 403 `FORBIDDEN` 拒绝，不会进入队列或执行器；`GET /v1/health`、`/v1/instances`、`/v1/jobs`、`/v1/jobs/:id`、`/v1/jobs/:id/events`、`/v1/jobs/:id/result` 全部保持可读。未配置该变量时授权分支与既有完全一致。
+
+第二十九批验证：`pnpm check` 通过（类型、Lint、构建与架构/i18n 约定），`packages/gateway/src/server.test.ts` 10 项测试通过；新增用例覆盖只读凭据可读全部安全路由、`POST /v1/jobs` 与 `POST /v1/jobs/:id/cancel` 均返回 403 `FORBIDDEN`、主 Token 仍可写，以及环境变量解析（合法值接受、过短拒绝）。跨机器入口、TLS 与多租户隔离仍待实现；真实外网验收本批未重跑。
