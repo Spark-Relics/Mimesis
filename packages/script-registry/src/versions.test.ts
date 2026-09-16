@@ -17,7 +17,7 @@ const recipe: CollectionWorkflow = {
   before: [
     { kind: "fill", selector: "#search", value: "{{query}}" },
     { kind: "click", selector: "#submit" },
-    { kind: "fill", selector: "#page", value: "{{query}}-{{page}}" },
+    { kind: "fill", selector: "#page", value: "{{query}}-{{size}}" },
   ],
   extract: {
     items: ".item",
@@ -45,7 +45,18 @@ function version(overrides: Partial<WorkflowVersion> = {}): WorkflowVersion {
 
 describe("parameterNames", () => {
   it("reports placeholders in first-use order without duplicates", () => {
-    expect(parameterNames(recipe)).toEqual(["query", "page"]);
+    expect(parameterNames(recipe)).toEqual(["query", "size"]);
+    // `{{page}}` is the pagination cursor, never a run parameter.
+    const templated: CollectionWorkflow = {
+      ...recipe,
+      before: [{ kind: "fill", selector: "#search", value: "{{query}}" }],
+      pagination: {
+        urlTemplate: "https://example.com?q={{query}}&p={{page}}",
+        startPage: 1,
+        maxPages: 3,
+      },
+    };
+    expect(parameterNames(templated)).toEqual(["query"]);
   });
 
   it("rejects a placeholder that cannot be a parameter name", () => {
@@ -82,7 +93,7 @@ describe("workflowDigest", () => {
       before: [
         { value: "{{query}}", selector: "#search", kind: "fill" },
         { selector: "#submit", kind: "click" },
-        { value: "{{query}}-{{page}}", selector: "#page", kind: "fill" },
+        { value: "{{query}}-{{size}}", selector: "#page", kind: "fill" },
       ],
       version: 1,
       dedupe: [],

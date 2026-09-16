@@ -184,10 +184,28 @@ export const collectionWorkflowSchema = z.strictObject({
   before: z.array(workflowActionSchema).max(20),
   extract: extractionSchema,
   pagination: z
-    .strictObject({
-      next: selectorSchema,
-      maxPages: z.number().int().min(1).max(50),
-    })
+    .union([
+      /** Click-mode pagination: the selector advances to the next page. */
+      z.strictObject({
+        next: selectorSchema,
+        maxPages: z.number().int().min(1).max(50),
+      }),
+      /**
+       * URL-mode pagination: each page is addressed by substituting the page
+       * number into the template. `{{page}}` is required; run parameters and
+       * `{{response:name}}` captures substitute like elsewhere. The first
+       * page still uses the run's start URL.
+       */
+      z
+        .strictObject({
+          urlTemplate: z.string().trim().min(1).max(2048),
+          startPage: z.number().int().min(0).max(1000).default(1),
+          maxPages: z.number().int().min(1).max(50),
+        })
+        .refine((value) => value.urlTemplate.includes("{{page}}"), {
+          message: "urlTemplate must reference {{page}}",
+        }),
+    ])
     .nullable(),
   detail: detailSchema.optional(),
   waitTimeoutMs: z.number().int().min(100).max(15_000),

@@ -56,20 +56,28 @@ function fixture(
       return index < pages.length - 1;
     }),
   };
+  const browser = {
+    navigate: vi.fn(async (url: string) => {
+      // Initial navigation keeps the first page; each URL-mode page advances.
+      if (
+        url !== "https://example.com" &&
+        url !== "https://example.com/list" &&
+        url !== "https://example.com/list?start=1"
+      )
+        index++;
+    }),
+    goBack: vi.fn(async () => undefined),
+    inspect: vi.fn(async () => {
+      let url = `https://example.com/${index}`;
+      if (sameUrl) url = "https://example.com/";
+      return { url, title: "Test", headings: [], links: [] };
+    }),
+  };
   const http: HttpPort = { fetch: vi.fn(async () => ({ status: 200, body: "" })) };
   const ctx: ScriptContext = {
     signal: controller.signal,
     http,
-    browser: {
-      automation,
-      navigate: vi.fn(async () => undefined),
-      goBack: vi.fn(async () => undefined),
-      inspect: vi.fn(async () => {
-        let url = `https://example.com/${index}`;
-        if (sameUrl) url = "https://example.com/";
-        return { url, title: "Test", headings: [], links: [] };
-      }),
-    },
+    browser: { automation, ...browser },
     async step(kind, action, detail) {
       steps.push({ kind, detail, skipped: false });
       return action();
@@ -87,7 +95,7 @@ function fixture(
       steps.push({ kind, detail, skipped: true });
     },
   };
-  return { ctx, automation, controller, steps, http };
+  return { ctx, automation, browser, controller, steps, http };
 }
 
 afterEach(() => vi.useRealTimers());
@@ -310,6 +318,42 @@ describe("reusable collection interpreter", () => {
     expect(() => parameterNames(workflow)).toThrow("INVALID_INPUT");
   });
 
+  it("rejects a URL template that references an unknown capture or leaves stray braces", () => {
+    const bad: CollectionWorkflow = {
+      ...recipe,
+      before: [],
+      pagination: {
+        urlTemplate: "https://example.com?p={{response:missing}}",
+        startPage: 1,
+        maxPages: 3,
+      },
+    };
+    expect(() => parameterNames(bad)).toThrow("INVALID_INPUT");
+    const stray: CollectionWorkflow = {
+      ...recipe,
+      before: [],
+      pagination: { urlTemplate: "https://example.com?p={{page}", startPage: 1, maxPages: 3 },
+    };
+    expect(() =>
+      parameterNames({
+        ...stray,
+        pagination: { urlTemplate: "https://example.com?p={{page}}}", startPage: 1, maxPages: 3 },
+      }),
+    ).toThrow("INVALID_INPUT");
+    // A well-formed template is accepted and only contributes run parameters.
+    const good: CollectionWorkflow = {
+      ...recipe,
+      before: [],
+      pagination: {
+        urlTemplate: "https://example.com/{{category}}?p={{page}}",
+        startPage: 0,
+        maxPages: 3,
+      },
+    };
+    expect(parameterNames(good)).toEqual(["category"]);
+    expect(() => validateForPublish(good)).not.toThrow();
+  });
+
   it("runs setup once, paginates, deduplicates overlap, and reports an absent next button", async () => {
     vi.useFakeTimers();
     const { ctx, automation, steps } = fixture([[{ name: "A" }], [{ name: "A" }, { name: "B" }]]);
@@ -347,6 +391,54 @@ describe("reusable collection interpreter", () => {
       "click: #submit",
       ".item",
       "click: .next",
+      ".item",
+      undefined,
+    ]);
+  });
+
+  it("paginates by URL template, substituting {{page}} into each navigation", async () => {
+    vi.useFakeTimers();
+    // Three pages of fresh data; maxPages stops after page 2.
+    const { ctx, automation, browser, steps } = fixture([
+      [{ name: "A" }],
+      [{ name: "B" }],
+      [{ name: "C" }],
+    ]);
+    const workflow: CollectionWorkflow = {
+      ...recipe,
+      before: [],
+      pagination: {
+        urlTemplate: "https://example.com/list/{{lang}}?page={{page}}",
+        startPage: 2,
+        maxPages: 2,
+      },
+    };
+    const resultPromise = collectPages(ctx, {
+      url: "https://example.com/list?start=1",
+      workflow,
+      parameters: { lang: "en", query: "hello" },
+    });
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+    expect(result.records).toEqual([{ name: "A" }, { name: "B" }]);
+    expect(result.collection).toEqual({ pages: 2, stopReason: "page-limit", truncated: true });
+    expect(automation.act).not.toHaveBeenCalled();
+    expect(browser.navigate.mock.calls.map(([url]) => url)).toEqual([
+      "https://example.com/list?start=1",
+      "https://example.com/list/en?page=3",
+    ]);
+    expect(steps.map((entry) => entry.kind)).toEqual([
+      "navigate",
+      "extract",
+      "navigate",
+      "extract",
+      "inspect",
+    ]);
+    // The run parameter bakes in; the cursor substitutes per page (startPage=2 → page 3).
+    expect(steps.map((entry) => entry.detail)).toEqual([
+      "https://example.com/list?start=1",
+      ".item",
+      "https://example.com/list/en?page=3",
       ".item",
       undefined,
     ]);

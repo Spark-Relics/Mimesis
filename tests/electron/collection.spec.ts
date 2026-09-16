@@ -95,7 +95,10 @@ test("record native actions, configure loop, execute with parameters and export 
       { kind: "fill", selector: "#search", value: "alpha" },
       { kind: "click", selector: "#submit" },
     ]);
-    expect(recorded.pagination?.next).toBe("#next");
+    const recordedPagination = recorded.pagination;
+    expect(
+      recordedPagination && "next" in recordedPagination ? recordedPagination.next : undefined,
+    ).toBe("#next");
     expect(JSON.stringify(recorded)).not.toContain("never-store-this");
     const fill = recorded.before[0];
     if (fill?.kind !== "fill") throw new Error("Expected fill");

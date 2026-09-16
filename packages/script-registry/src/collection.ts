@@ -14,6 +14,9 @@ import { evaluateExpression, evaluateFilter } from "./expression.js";
 import { dedupeKey, mappedOutputNames, mappingTarget } from "./fields.js";
 import { parameterNames, validateForPublish } from "./versions.js";
 
+/** Same placeholder syntax as the version layer: `{{name}}`, `{{page}}`, `{{response:name}}`. */
+const placeholder = /\{\{([^{}]*)\}\}/gu;
+
 /** One extracted record; field values become numbers/booleans only when a field declares a type. */
 export type CollectionRecordValue = string | number | boolean;
 type FieldRow = Record<string, CollectionRecordValue>;
@@ -114,6 +117,20 @@ export function resolveWorkflow(
         ...(action.request.body !== undefined && { body: substitute(action.request.body) }),
       };
     }
+  }
+  const templated = workflow.pagination;
+  if (templated && "urlTemplate" in templated) {
+    // Parameters bake in here; `{{page}}` and `{{response:name}}` stay literal
+    // because they only resolve per-page / at runtime.
+    const urlTemplate = templated.urlTemplate.replace(
+      placeholder,
+      (match: string, name: string) => {
+        if (name === "page" || name.startsWith("response:")) return match;
+        if (!Object.hasOwn(values, name)) throw new AppError("INVALID_INPUT");
+        return values[name] ?? "";
+      },
+    );
+    workflow.pagination = { ...templated, urlTemplate };
   }
   return collectionWorkflowSchema.parse(workflow);
 }
@@ -420,11 +437,29 @@ export async function collectPages(
       break;
     }
     if (!workflow.pagination) break;
-    if (!(await browser.exists(workflow.pagination.next, ctx.signal))) {
+    const pageLimitReached = pages >= workflow.pagination.maxPages;
+    if ("urlTemplate" in workflow.pagination) {
+      if (pageLimitReached) {
+        stopReason = "page-limit";
+        break;
+      }
+      previousUrl = (await ctx.browser.inspect(ctx.signal)).url;
+      const target = substituteCaptures(
+        workflow.pagination.urlTemplate.replace(
+          /\{\{page\}\}/gu,
+          String(workflow.pagination.startPage + pages),
+        ),
+      );
+      await ctx.step("navigate", () => ctx.browser.navigate(target, ctx.signal), target);
+      await pause(ctx.signal);
+      continue;
+    }
+    const nextSelector = workflow.pagination.next;
+    if (!(await browser.exists(nextSelector, ctx.signal))) {
       stopReason = "next-unavailable";
       break;
     }
-    if (pages >= workflow.pagination.maxPages) {
+    if (pageLimitReached) {
       stopReason = "page-limit";
       break;
     }
@@ -432,12 +467,8 @@ export async function collectPages(
     await ctx.step(
       "click",
       () =>
-        browser.act(
-          { kind: "click", selector: workflow.pagination?.next ?? "" },
-          workflow.waitTimeoutMs,
-          ctx.signal,
-        ),
-      `click: ${workflow.pagination?.next ?? ""}`,
+        browser.act({ kind: "click", selector: nextSelector }, workflow.waitTimeoutMs, ctx.signal),
+      `click: ${nextSelector}`,
     );
     await pause(ctx.signal);
   }

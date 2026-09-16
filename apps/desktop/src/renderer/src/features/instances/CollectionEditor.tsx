@@ -56,6 +56,79 @@ function parseHeaders(text: string): HttpRequestSpec["headers"] {
   return headers;
 }
 
+/** Type guard: URL-mode pagination addresses each page by a template. */
+function isUrlPagination(
+  pagination: NonNullable<CollectionWorkflow["pagination"]>,
+): pagination is { urlTemplate: string; startPage: number; maxPages: number } {
+  return "urlTemplate" in pagination;
+}
+
+function paginationModeValue(pagination: NonNullable<CollectionWorkflow["pagination"]>) {
+  if (isUrlPagination(pagination)) return "url";
+  return "click";
+}
+
+function UrlPaginationFields({
+  pagination,
+  disabled,
+  onChange,
+}: {
+  pagination: { urlTemplate: string; startPage: number; maxPages: number };
+  disabled: boolean;
+  onChange(pagination: CollectionWorkflow["pagination"]): void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="workflow-form-row">
+      <label className="workflow-field">
+        {t("flowPageUrl")}
+        <input
+          value={pagination.urlTemplate}
+          disabled={disabled}
+          placeholder={t("flowPageUrlExample")}
+          onChange={(event) => onChange({ ...pagination, urlTemplate: event.target.value })}
+        />
+      </label>
+      <label className="workflow-field short-field">
+        {t("flowStartPage")}
+        <input
+          type="number"
+          min={0}
+          max={1000}
+          value={pagination.startPage}
+          disabled={disabled}
+          onChange={(event) => onChange({ ...pagination, startPage: Number(event.target.value) })}
+        />
+      </label>
+    </div>
+  );
+}
+
+function ClickPaginationFields({
+  pagination,
+  disabled,
+  onChange,
+}: {
+  pagination: { next: string; maxPages: number };
+  disabled: boolean;
+  onChange(pagination: CollectionWorkflow["pagination"]): void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="workflow-form-row">
+      <label className="workflow-field">
+        {t("flowNext")}
+        <input
+          value={pagination.next}
+          disabled={disabled}
+          placeholder={t("flowNextExample")}
+          onChange={(event) => onChange({ ...pagination, next: event.target.value })}
+        />
+      </label>
+    </div>
+  );
+}
+
 export function CollectionEditor({
   workflow,
   onChange,
@@ -404,40 +477,66 @@ export function CollectionEditor({
           {t("flowEnableLoop")}
         </label>
         {workflow.pagination && (
-          <div className="workflow-form-row">
-            <label className="workflow-field">
-              {t("flowNext")}
-              <input
-                value={workflow.pagination.next}
+          <>
+            <div className="workflow-form-row">
+              <label className="workflow-field">
+                {t("flowPaginationMode")}
+                <select
+                  value={paginationModeValue(workflow.pagination)}
+                  disabled={disabled}
+                  onChange={(event) => {
+                    if (!workflow.pagination) return;
+                    let pagination: CollectionWorkflow["pagination"];
+                    if (event.target.value === "url")
+                      pagination = {
+                        urlTemplate: "https://example.com/list?page={{page}}",
+                        startPage: 1,
+                        maxPages: workflow.pagination.maxPages,
+                      };
+                    else pagination = { next: "", maxPages: workflow.pagination.maxPages };
+                    onChange({ ...workflow, pagination });
+                  }}
+                >
+                  <option value="click">{t("flowPaginationClick")}</option>
+                  <option value="url">{t("flowPaginationUrl")}</option>
+                </select>
+              </label>
+              <label className="workflow-field short-field">
+                {t("flowMaxPages")}
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={workflow.pagination.maxPages}
+                  disabled={disabled}
+                  onChange={(event) => {
+                    if (workflow.pagination)
+                      onChange({
+                        ...workflow,
+                        pagination: {
+                          ...workflow.pagination,
+                          maxPages: Number(event.target.value),
+                        },
+                      });
+                  }}
+                />
+              </label>
+            </div>
+            {isUrlPagination(workflow.pagination) && (
+              <UrlPaginationFields
+                pagination={workflow.pagination}
                 disabled={disabled}
-                placeholder={t("flowNextExample")}
-                onChange={(event) => {
-                  if (workflow.pagination)
-                    onChange({
-                      ...workflow,
-                      pagination: { ...workflow.pagination, next: event.target.value },
-                    });
-                }}
+                onChange={(pagination) => onChange({ ...workflow, pagination })}
               />
-            </label>
-            <label className="workflow-field short-field">
-              {t("flowMaxPages")}
-              <input
-                type="number"
-                min={1}
-                max={50}
-                value={workflow.pagination.maxPages}
+            )}
+            {!isUrlPagination(workflow.pagination) && (
+              <ClickPaginationFields
+                pagination={workflow.pagination}
                 disabled={disabled}
-                onChange={(event) => {
-                  if (workflow.pagination)
-                    onChange({
-                      ...workflow,
-                      pagination: { ...workflow.pagination, maxPages: Number(event.target.value) },
-                    });
-                }}
+                onChange={(pagination) => onChange({ ...workflow, pagination })}
               />
-            </label>
-          </div>
+            )}
+          </>
         )}
         <div className="workflow-form-row">
           <label className="workflow-field">

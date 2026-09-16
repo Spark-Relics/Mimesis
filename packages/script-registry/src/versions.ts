@@ -22,26 +22,41 @@ const placeholder = /\{\{([^{}]*)\}\}/gu;
 /** Captured response bodies are referenced as `{{response:name}}`, never as run parameters. */
 const responseRef = /^response:([a-zA-Z][a-zA-Z0-9_]{0,63})$/u;
 
-/**
- * Parameter names referenced by a workflow, in first-use order.
- * `{{response:name}}` references resolve at runtime and are not inputs.
- */
+/** Parameter names referenced by a workflow, in first-use order. `{{response:name}}` references resolve at runtime and are not inputs. */
 export function parameterNames(workflow: CollectionWorkflow): string[] {
   const names: string[] = [];
+  const addPlaceholderNames = (
+    text: string,
+    captured: Set<string>,
+    strictBraces: boolean,
+  ): void => {
+    const stripped = text.replace(placeholder, "");
+    // A stray single brace or unbalanced marker would be sent to the page literally.
+    if (stripped.includes("{{") || (strictBraces && stripped.includes("}")))
+      throw new AppError("INVALID_INPUT");
+    for (const match of text.matchAll(placeholder)) {
+      const name = match[1] ?? "";
+      if (responseRef.test(name)) {
+        // A response reference must name something a preceding request captures.
+        if (!captured.has(responseRef.exec(name)?.[1] ?? "")) throw new AppError("INVALID_INPUT");
+        continue;
+      }
+      if (name !== "page" && !/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/u.test(name))
+        throw new AppError("INVALID_INPUT");
+      if (name !== "page" && !names.includes(name)) names.push(name);
+    }
+  };
   for (const action of workflow.before) {
     if (action.kind !== "fill") continue;
-    for (const match of action.value.matchAll(placeholder)) {
-      const name = match[1] ?? "";
-      if (responseRef.test(name)) continue;
-      if (!/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/u.test(name)) throw new AppError("INVALID_INPUT");
-      if (!names.includes(name)) names.push(name);
-    }
-    // A response reference must name something a preceding request captures.
-    const captured = capturedNames(workflow, workflow.before.indexOf(action));
-    for (const match of action.value.matchAll(placeholder)) {
-      const ref = responseRef.exec(match[1] ?? "");
-      if (ref && !captured.has(ref[1] ?? "")) throw new AppError("INVALID_INPUT");
-    }
+    addPlaceholderNames(
+      action.value,
+      capturedNames(workflow, workflow.before.indexOf(action)),
+      false,
+    );
+  }
+  if (workflow.pagination && "urlTemplate" in workflow.pagination) {
+    // `{{page}}` is the pagination cursor, not a run parameter.
+    addPlaceholderNames(workflow.pagination.urlTemplate, capturedNames(workflow, -1), true);
   }
   return names;
 }
