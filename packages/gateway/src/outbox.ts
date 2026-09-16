@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { type GatewayDelivery, WebhookHttpStatusError } from "@clawler/contracts";
 
 export interface WebhookOutboxHost {
@@ -71,7 +72,7 @@ export class WebhookOutbox {
       try {
         const response = await this.fetchFn(entry.delivery.url, {
           method: "POST",
-          headers: { "Content-Type": "application/json", ...entry.delivery.headers },
+          headers: this.headersFor(entry, payload),
           body: payload,
           signal: AbortSignal.timeout(entry.delivery.timeoutMs),
         });
@@ -95,6 +96,24 @@ export class WebhookOutbox {
       // A commit rejection means storage failed; running() turns false and the loop exits.
       await this.host.commit(updated);
     }
+  }
+
+  /**
+   * Outgoing headers. Every attempt carries a stable `X-Mimesis-Event-Id` (the job id) so
+   * the receiver can deduplicate at-least-once redeliveries; a signing secret adds an
+   * `X-Mimesis-Signature` over the exact body. Caller headers cannot override either.
+   */
+  private headersFor(entry: GatewayDelivery, payload: string): Record<string, string> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...entry.delivery.headers,
+      "X-Mimesis-Event-Id": entry.jobId,
+    };
+    const secret = entry.delivery.secret;
+    if (secret !== undefined)
+      headers["X-Mimesis-Signature"] =
+        `sha256=${createHmac("sha256", secret).update(payload).digest("hex")}`;
+    return headers;
   }
 
   async stop(): Promise<void> {

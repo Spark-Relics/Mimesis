@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import {
   AppError,
   type GatewayExecution,
@@ -248,6 +249,42 @@ describe("durable browser job queue", () => {
     });
     await queue.close();
   });
+
+  it("stamps every attempt with a stable event id and, when configured, an HMAC signature over the body", async () => {
+    const repository = memoryRepository();
+    const seen: Array<{ headers: Record<string, string>; body: string }> = [];
+    const fetchFn = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      seen.push({
+        headers: (init?.headers ?? {}) as Record<string, string>,
+        body: String(init?.body),
+      });
+      return new Response(null, { status: 200 });
+    });
+    const queue = await GatewayQueue.open(repository, executor(), {
+      fetch: fetchFn as unknown as typeof fetch,
+    });
+    // The caller cannot override the reserved headers.
+    const job = await queue.submit(submission, null, {
+      ...webhook,
+      headers: { "X-Mimesis-Event-Id": "spoofed" },
+      secret: "top-secret-signing-key-1",
+    });
+    queue.start();
+    await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
+    const sent = seen[0];
+    expect(sent?.headers["X-Mimesis-Event-Id"]).toBe(job.job.id);
+    expect(sent?.headers["X-Mimesis-Signature"]).toBe(
+      `sha256=${createHmac("sha256", "top-secret-signing-key-1")
+        .update(sent?.body ?? "")
+        .digest("hex")}`,
+    );
+    // Without a secret there is no signature, but the event id still travels.
+    const unsigned = await queue.submit(submission, null, webhook);
+    await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(2));
+    expect(seen[1]?.headers["X-Mimesis-Event-Id"]).toBe(unsigned.job.id);
+    expect(seen[1]?.headers["X-Mimesis-Signature"]).toBeUndefined();
+    await queue.close();
+  }, 15_000);
 
   it("does not deliver for failed or cancelled jobs and leaves the outbox entry pending", async () => {
     const repository = memoryRepository();

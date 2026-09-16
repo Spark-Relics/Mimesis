@@ -72,6 +72,12 @@ if ($job.status -eq 'succeeded') {
 
 `Idempotency-Key` 可选，长度为 1–128 个非空白 ASCII 字符。相同键和相同规范化请求返回原任务及 `replayed: true`（200），不同请求复用同一键返回 409。键在当前数据目录中全局唯一，重启仍有效。请求重试应保留原键，新业务任务应使用新键。幂等语义以已保存任务为准，不承诺外部网站操作“恰好一次”。
 
+## Webhook 可靠投递
+
+`POST /v1/jobs` 可附带 `webhook`（可运行 Python 兼容结构解析）：`{ url, headers?, maxAttempts?, timeoutMs?, secret? }`。`url` 仅接受 http/https（长度 ≤4096）；`headers` 最多 32 条；`maxAttempts` 为 1–20（默认 8）；`timeoutMs` 为 100ms–60s（默认 10s）；`secret` 为 16–256 字符的可选签名密钥。
+
+任务成功（`succeeded`）并生成清洗结果后，投递进入同一数据库事务的持久发件箱，由独立循环按指数退避（封顶 5 分钟）重试；网络错误、超时与非 2xx 都计入尝试次数，达到 `maxAttempts` 后标记为 `failed` 并停止。失败或取消的任务不投递，其发件箱条目保持 `pending`。投递跨重启续投，`close` 前等待在途尝试收敛。投递是“至少一次”：每次尝试都带稳定的 `X-Mimesis-Event-Id`（即任务 id），接收方应据此去重；配置 `secret` 时附加 `X-Mimesis-Signature: sha256=<hex>`，对请求正文做 HMAC-SHA256 校验。调用方提供的同名头会被保留的保留头覆盖，不能被伪造。
+
 ## 文件与恢复
 
 ```text
@@ -107,9 +113,9 @@ if ($job.status -eq 'succeeded') {
 - 状态已分表保存到 SQLite，但服务仍交换有界完整快照，内存队列尚未改为数据库分页调度。高吞吐、多租户和持续长期运行仍需增量命令与监控。
 - 网关队列通过 HTTP 管理；桌面运行页仍显示最近 50 条实际 Run。
 - 应用需持续运行，关闭即停止网关。尚无系统服务、托盘守护、自动启动或防休眠能力。
-- 已有点击、普通文本输入、等待及翻页提取。尚未实现通用脚本沙盒、上传/下载/键盘等完整 RPA SDK、页面请求/响应捕获、账号池租约与轮换、Profile 代理、Webhook 重试和通用结果 Schema。
+- 已有点击、普通文本输入、等待及翻页提取。尚未实现通用脚本沙盒、上传/下载/键盘等完整 RPA SDK、页面请求/响应捕获、账号池租约与轮换、Profile 代理和通用结果 Schema。
 - Electron Session 隔离针对 Cookie/站点状态，不提供操作系统机器码隔离，也不保证任意网站都能无适配采集。
 
-完整开发顺序以[研发与验收](engineering-plan.md)为准；存储底座还需文件完整性巡检、outbox 与长期运行验收。`GatewayExecutor` 边界可替换当前单执行器，HTTP 与结果归档无需直接依赖 Electron。
+完整开发顺序以[研发与验收](engineering-plan.md)为准；存储底座还需文件完整性巡检与长期运行验收。`GatewayExecutor` 边界可替换当前单执行器，HTTP 与结果归档无需直接依赖 Electron。
 
 验证：`pnpm check`、`pnpm test:e2e`。新增测试覆盖幂等竞态、容量、取消、恢复、磁盘失败、导出及 HTTP 边界；Electron 测试实际采集内置网页、校验磁盘结果，并验证正常退出后的等待任务恢复。

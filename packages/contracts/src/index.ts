@@ -495,6 +495,11 @@ export const webhookDeliverySchema = z.strictObject({
   maxAttempts: z.number().int().min(1).max(20).default(8),
   /** Per-attempt timeout in ms. Default 10s, capped at 60s. */
   timeoutMs: z.number().int().min(100).max(60_000).default(10_000),
+  /**
+   * Optional HMAC-SHA256 signing secret. When set, each attempt carries
+   * `X-Mimesis-Signature: sha256=<hex>` over the exact request body. Never echoed back.
+   */
+  secret: z.string().min(16).max(256).optional(),
 });
 export type WebhookDelivery = z.infer<typeof webhookDeliverySchema>;
 export const gatewayDeliverySchema = z.object({
