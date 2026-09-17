@@ -63,6 +63,7 @@ if ($job.status -eq 'succeeded') {
 | `POST /v1/jobs` | JSON 提交 `{instanceId, targetUrl?, parameters?, cleaning?}`；新任务 202 |
 | `GET /v1/jobs?offset=0&limit=50` | 按提交时间倒序分页，返回 `{jobs,total}`；limit 为 1–100 |
 | `GET /v1/jobs/:id` | 返回 `{job, delivery}`：job 含状态、配置快照和完成后的原始 Run；delivery 为该任务的 Webhook 投递记录，未配置 Webhook 时为 `null` |
+| `POST /v1/jobs/:id/delivery/retry` | 重新排队已放弃（`failed`）的 Webhook 投递，恢复完整尝试预算并清零尝试计数，不重新执行采集；非 `failed` 状态返回 409 `CONFLICT`，无 Webhook 或未知任务返回 404 |
 | `POST /v1/jobs/:id/cancel` | 等待任务直接取消；运行任务持久化取消请求，再通知执行器 |
 | `GET /v1/jobs/:id/result?format=json` | 成功任务的清洗结果；format 支持 json、csv、ndjson |
 
@@ -79,6 +80,8 @@ if ($job.status -eq 'succeeded') {
 任务成功（`succeeded`）并生成清洗结果后，投递进入同一数据库事务的持久发件箱，由独立循环按指数退避（封顶 5 分钟）重试；网络错误、超时与非 2xx 都计入尝试次数，达到 `maxAttempts` 后标记为 `failed` 并停止。失败或取消的任务不投递，其发件箱条目保持 `pending`。投递跨重启续投，`close` 前等待在途尝试收敛。投递是“至少一次”：每次尝试都带稳定的 `X-Mimesis-Event-Id`（即任务 id），接收方应据此去重；配置 `secret` 时附加 `X-Mimesis-Signature: sha256=<hex>`，对请求正文做 HMAC-SHA256 校验。调用方提供的同名头会被保留的保留头覆盖，不能被伪造。
 
 投递结果可观测：`GET /v1/jobs/:id` 在同一响应内返回该任务的 `delivery` 记录（未配置 Webhook 时为 `null`），含 `status`（`pending`/`delivered`/`failed`）、`attempts`、`lastStatusCode`、`lastError`、`deliveredAt` 等字段，调用方无需二次轮询即可判断投递是否被接收、仍在重试或已放弃。
+
+投递用尽预算被标记为 `failed` 后，可调用 `POST /v1/jobs/:id/delivery/retry` 独立重推：条目回到 `pending`、尝试计数与错误证据清零，按原退避策略重新投递同一份已归档结果——交付失败不触发重新采集（事件 ID 不变，接收方仍按其去重）。已 `delivered` 或仍在 `pending` 的条目拒绝重推（409），只能对 `failed` 状态操作。
 
 ## 文件与恢复
 

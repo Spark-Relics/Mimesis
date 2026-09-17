@@ -75,9 +75,7 @@ test("observe page structure, highlight matched rows and apply the proposal", as
     await expect(ui.locator(".suggest-fields .workflow-check")).toHaveCount(2);
 
     // Live highlight: the rows carry the marker and the injected outline style.
-    await expect
-      .poll(() => browser.locator("[data-clawler-highlight]").count())
-      .toBe(3);
+    await expect.poll(() => browser.locator("[data-clawler-highlight]").count()).toBe(3);
     await expect
       .poll(async () =>
         browser.evaluate(

@@ -196,3 +196,7 @@ Mimesis 是运行在用户电脑上的企业级可编排采集网关。用户通
 2026-09-16 第三十一批：Webhook 投递结果可观测，闭合可靠投递回路。`GatewayQueue` 新增 `delivery(id)`：校验任务存在（未知任务 `NOT_FOUND`），返回该任务发件箱条目（`GatewayDelivery`）的克隆，无 Webhook 时返回 `null`；`GET /v1/jobs/:id` 响应扩展为 `{ job, delivery }`（新增同级 `delivery` 字段，`job` 结构不变，向后兼容）。调用方据此可直接判断投递为 `pending`（仍在重试）、`delivered` 或 `failed`，并读取 `attempts`/`lastStatusCode`/`lastError`/`deliveredAt`，无需另行轮询。
 
 第三十一批验证：`pnpm check` 通过（类型、Lint、构建与架构/i18n 约定），19 个测试文件 172 项测试通过；`queue.test.ts` 新增用例覆盖“无 Webhook 任务 `delivery` 为 `null`、有 Webhook 任务返回 `pending`/`attempts=0` 条目、未知任务抛 `NOT_FOUND`”，`server.test.ts` 新增用例覆盖 `GET /v1/jobs/:id` 返回 `{ job, delivery: null }`。Webhook 的 Electron 端到端与真实外网验收本批未重跑。
+
+2026-09-17 第三十二批：Webhook 投递独立重推。`GatewayQueue` 新增 `redeliver(id)`：把已放弃（`failed`）的发件箱条目重置回 `pending`（attempts/lastAttemptedAt/deliveredAt/lastStatusCode/lastError 清零），同一事务持久化后重启 outbox 循环，按原退避策略对同一份已归档结果重新投递——交付失败不触发重新采集（事件 ID 即 jobId 不变，接收方按其去重语义不受影响）；仅 `failed` 可重推，`delivered`（终态）与 `pending`（已排程）以 `CONFLICT` 拒绝，无 Webhook 或未知任务 `NOT_FOUND`。HTTP 侧新增 `POST /v1/jobs/:id/delivery/retry`（写权限，只读凭据 403），返回 `{ delivery }`。
+
+第三十二批验证：`pnpm check` 通过（类型、Lint、构建与架构/i18n 约定），20 个测试文件 183 项测试通过；`queue.test.ts` 新增用例覆盖“重推恢复完整预算且不重新执行任务（execute 仅 1 次）”、“非 failed 状态与未知/无 Webhook 任务拒绝”，`server.test.ts` 新增用例覆盖 HTTP 重推成功（`pending`/`attempts=0`）与无 Webhook 任务 404。Webhook 的 Electron 端到端与真实外网验收本批未重跑。
