@@ -626,20 +626,27 @@ export function CollectionEditor({
           disabled={disabled}
           url={url}
           onApply={(next) => {
-            const existing = new Set(workflow.extract.fields.map((field) => field.name));
-            const kept = next.fields
-              .filter((field) => !existing.has(field.name))
-              .map((field) => ({
+            // A picked proposal carries the selector the user just confirmed,
+            // so it replaces a same-name field instead of being dropped by it —
+            // otherwise the placeholder whole-item "title" survives and the
+            // record collects the row's concatenated text.
+            const merged = workflow.extract.fields.map((field) => ({ ...field }));
+            for (const field of next.fields) {
+              const replacement = {
                 name: field.name,
                 selector: field.selector,
                 attribute: field.attribute as "text" | "href" | "src" | "value",
                 required: false,
-              }));
+              };
+              const at = merged.findIndex((existing) => existing.name === field.name);
+              if (at === -1) merged.push(replacement);
+              else merged[at] = replacement;
+            }
             const applied: CollectionWorkflow = {
               ...workflow,
               extract: {
                 items: next.items,
-                fields: [...workflow.extract.fields, ...kept],
+                fields: merged,
               },
             };
             // A proposed next-page selector only replaces an empty loop.

@@ -15,7 +15,10 @@ test("observe page structure, highlight matched rows and apply the proposal", as
   test.setTimeout(90_000);
   const site = createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://localhost");
-    const rows = [1, 2, 3]
+    // Page two must advance the data: byte-identical rows read as a duplicate
+    // page, wait out the full settle timeout and end with no-new-records.
+    const page = url.pathname === "/" ? 1 : 2;
+    const rows = (page === 1 ? [1, 2, 3] : [4, 5, 6])
       .map(
         (at) =>
           `<article class="product"><h2 class="title">Item ${at}</h2><a class="link" href="/item/${at}">Open ${at}</a></article>`,
@@ -97,11 +100,21 @@ test("observe page structure, highlight matched rows and apply the proposal", as
       .toBe("succeeded");
     const workspace = await ui.evaluate(() => window.clawler?.getWorkspace());
     const run = workspace?.runs[0];
-    expect(run?.result?.records?.map((row) => row.title)).toEqual(["Item 1", "Item 2", "Item 3"]);
+    expect(run?.result?.records?.map((row) => row.title)).toEqual([
+      "Item 1",
+      "Item 2",
+      "Item 3",
+      "Item 4",
+      "Item 5",
+      "Item 6",
+    ]);
     expect(run?.result?.records?.map((row) => row.link)).toEqual([
       `${targetUrl}item/1`,
       `${targetUrl}item/2`,
       `${targetUrl}item/3`,
+      `${targetUrl}item/4`,
+      `${targetUrl}item/5`,
+      `${targetUrl}item/6`,
     ]);
     expect(run?.result?.collection).toMatchObject({
       pages: 2,
