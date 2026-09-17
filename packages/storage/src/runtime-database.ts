@@ -172,11 +172,19 @@ export class RuntimeDatabase {
   private loadRun(id: string): Run {
     const run = this.db.prepare("SELECT * FROM runs WHERE id=?").get(id);
     if (!run) throw new AppError("STORAGE_FAILED");
-    const steps = this.db
-      .prepare(
-        "SELECT id,kind,status,startedAt,finishedAt,detail,errorCode FROM steps WHERE runId=? ORDER BY position",
-      )
-      .all(id);
+    const steps = (
+      this.db
+        .prepare(
+          "SELECT id,kind,status,startedAt,finishedAt,detail,errorCode FROM steps WHERE runId=? ORDER BY position",
+        )
+        .all(id) as Row[]
+    ).map((row) => {
+      const value: Record<string, unknown> = { ...row };
+      // Steps carried over by the version-3 migration keep a NULL detail; the
+      // field is optional-with-default, not nullable, so the key is dropped.
+      if (row.detail === null) delete value.detail;
+      return value;
+    });
     return runSchema.parse({ ...run, result: parseJson(run.result), steps });
   }
   private writeWorkspace(input: StoredState) {

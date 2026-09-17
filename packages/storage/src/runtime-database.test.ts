@@ -143,6 +143,47 @@ it("upgrades a database written before version binding without losing runs", asy
   upgraded.dispatch({ method: "close" });
 });
 
+it("reads runs whose steps predate the detail column migration", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mimesis-upgrade-steps-"));
+  const file = join(root, "runtime.sqlite");
+  const run = {
+    ...completedRun(),
+    steps: [
+      {
+        id: "navigate",
+        kind: "navigate" as const,
+        status: "succeeded" as const,
+        startedAt: completedRun().startedAt,
+        finishedAt: completedRun().finishedAt,
+        detail: "https://example.test/catalog",
+        errorCode: null,
+      },
+    ],
+  };
+  const seeded = new RuntimeDatabase(file);
+  seeded.dispatch({
+    method: "initialize",
+    workspace: { ...workspace(), runs: [run] },
+    gateway: null,
+  });
+  seeded.dispatch({ method: "close" });
+  const legacy = new DatabaseSync(file);
+  legacy.exec("DROP TABLE workflow_versions");
+  legacy.exec("ALTER TABLE runs DROP COLUMN workflowVersionId");
+  legacy.exec("ALTER TABLE instances DROP COLUMN publishedVersionId");
+  legacy.exec("ALTER TABLE instances DROP COLUMN lastWatermark");
+  legacy.exec("ALTER TABLE steps DROP COLUMN detail");
+  legacy.exec("ALTER TABLE steps DROP COLUMN errorCode");
+  legacy.exec("PRAGMA user_version=1");
+  legacy.close();
+  const upgraded = new RuntimeDatabase(file);
+  const loaded = upgraded.dispatch({ method: "workspace.load" }) as StoredState;
+  // The re-added detail column is NULL for pre-existing rows; the field is
+  // optional-with-default, so reading must yield "" instead of throwing.
+  expect(loaded.runs[0]?.steps.map((step) => step.detail)).toEqual([""]);
+  upgraded.dispatch({ method: "close" });
+});
+
 it("round trips normalized workspace, shared runs, step ordering and gateway idempotency", async (context) => {
   const { db, inspection } = await database(context);
   const state = workspace();
