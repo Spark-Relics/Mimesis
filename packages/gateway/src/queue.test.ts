@@ -3,6 +3,7 @@ import {
   AppError,
   type GatewayExecution,
   type GatewayState,
+  type Run,
   WebhookHttpStatusError,
 } from "@clawler/contracts";
 import { describe, expect, it, vi } from "vitest";
@@ -477,5 +478,97 @@ describe("durable browser job queue", () => {
     const error = new WebhookHttpStatusError(502);
     expect(error.statusCode).toBe(502);
     expect(error.message).toContain("502");
+  });
+
+  it("executes jobs in parallel up to the configured concurrency", async () => {
+    const repository = memoryRepository();
+    const driver = executor();
+    let running = 0;
+    let peak = 0;
+    driver.execute.mockImplementation(async () => {
+      running += 1;
+      peak = Math.max(peak, running);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      running -= 1;
+      return completedRun();
+    });
+    const queue = await GatewayQueue.open(repository, driver, {
+      concurrency: 2,
+      maxPending: 10,
+    });
+    expect(queue.health().concurrency).toBe(2);
+    const jobs = await Promise.all([
+      queue.submit(submission, "parallel-a"),
+      queue.submit(submission, "parallel-b"),
+      queue.submit(submission, "parallel-c"),
+    ]);
+    queue.start();
+    await vi.waitFor(() => {
+      for (const reply of jobs) expect(queue.get(reply.job.id).status).toBe("succeeded");
+    });
+    expect(peak).toBe(2);
+    await queue.close();
+  });
+
+  it("runs one job at a time when concurrency is not configured", async () => {
+    const driver = executor();
+    let running = 0;
+    let peak = 0;
+    driver.execute.mockImplementation(async () => {
+      running += 1;
+      peak = Math.max(peak, running);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      running -= 1;
+      return completedRun();
+    });
+    const queue = await GatewayQueue.open(memoryRepository(), driver, { maxPending: 10 });
+    expect(queue.health().concurrency).toBe(1);
+    const jobs = await Promise.all([
+      queue.submit(submission, "serial-a"),
+      queue.submit(submission, "serial-b"),
+    ]);
+    queue.start();
+    await vi.waitFor(() => {
+      for (const reply of jobs) expect(queue.get(reply.job.id).status).toBe("succeeded");
+    });
+    expect(peak).toBe(1);
+    await queue.close();
+  });
+
+  it("cancelling one running job does not abort its neighbours", async () => {
+    const driver = executor();
+    const gates: Array<(value: Run) => void> = [];
+    driver.execute.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          gates.push(resolve);
+        }),
+    );
+    const queue = await GatewayQueue.open(memoryRepository(), driver, {
+      concurrency: 2,
+      maxPending: 10,
+    });
+    const first = await queue.submit(submission, "cancel-a");
+    const second = await queue.submit(submission, "cancel-b");
+    queue.start();
+    await vi.waitFor(() => expect(gates).toHaveLength(2));
+    await queue.cancel(first.job.id);
+    gates[1]?.(completedRun());
+    await vi.waitFor(() => expect(queue.get(second.job.id).status).toBe("succeeded"));
+    gates[0]?.(completedRun());
+    await vi.waitFor(() => expect(queue.get(first.job.id).status).toBe("cancelled"));
+    await queue.close();
+  });
+
+  it("rejects concurrency outside the supported range", async () => {
+    await expect(
+      GatewayQueue.open(memoryRepository(), executor(), { concurrency: 0 }),
+    ).rejects.toThrow();
+    await expect(
+      GatewayQueue.open(memoryRepository(), executor(), { concurrency: 1.5 }),
+    ).rejects.toThrow();
+    await expect(
+      GatewayQueue.open(memoryRepository(), executor(), { concurrency: 9 }),
+    ).rejects.toThrow();
   });
 });

@@ -9,6 +9,7 @@ const configSchema = z.object({
   token: credential,
   port: z.number().int().min(0).max(65535),
   rateLimit: z.number().int().min(0).max(10_000).optional(),
+  concurrency: z.number().int().min(1).max(8).optional(),
   previousToken: credential.optional(),
   readOnlyToken: credential.optional(),
 });
@@ -20,12 +21,16 @@ export function gatewayConfigFromEnv(env: NodeJS.ProcessEnv): GatewayConfig | un
   const rateLimit = env.CLAWLER_GATEWAY_RATE_LIMIT;
   let parsedRateLimit: number | undefined;
   if (rateLimit !== undefined) parsedRateLimit = Number(rateLimit);
+  const concurrency = env.CLAWLER_GATEWAY_CONCURRENCY;
+  let parsedConcurrency: number | undefined;
+  if (concurrency !== undefined) parsedConcurrency = Number(concurrency);
   const previousToken = env.CLAWLER_GATEWAY_PREVIOUS_TOKEN;
   const readOnlyToken = env.CLAWLER_GATEWAY_READONLY_TOKEN;
   return configSchema.parse({
     token: env.CLAWLER_GATEWAY_TOKEN,
     port: Number(env.CLAWLER_GATEWAY_PORT ?? "17840"),
     rateLimit: parsedRateLimit,
+    concurrency: parsedConcurrency,
     previousToken,
     readOnlyToken,
   });

@@ -4,6 +4,7 @@ import { extname, join } from "node:path";
 import { IPC, type RpcResult, requestSchema, toErrorCode } from "@clawler/contracts";
 import {
   GatewayQueue,
+  type GatewayQueueOptions,
   GatewayServer,
   gatewayConfigFromEnv,
   SqliteGatewayRepository,
@@ -91,10 +92,14 @@ async function createWindow(): Promise<void> {
   service = await WorkspaceService.create(window, store);
   const gatewayConfig = gatewayConfigFromEnv(process.env);
   if (gatewayConfig) {
-    gatewayQueue = await GatewayQueue.open(
-      new SqliteGatewayRepository(join(app.getPath("userData"), "runtime"), store),
-      service,
+    const gatewayRepository = new SqliteGatewayRepository(
+      join(app.getPath("userData"), "runtime"),
+      store,
     );
+    const gatewayOptions: GatewayQueueOptions = {};
+    if (gatewayConfig.concurrency !== undefined)
+      gatewayOptions.concurrency = gatewayConfig.concurrency;
+    gatewayQueue = await GatewayQueue.open(gatewayRepository, service, gatewayOptions);
     gatewayServer = await GatewayServer.listen(
       gatewayConfig,
       gatewayQueue,

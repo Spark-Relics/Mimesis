@@ -257,6 +257,21 @@ describe("local HTTP gateway", () => {
     ).toThrow();
   });
 
+  it("parses the optional concurrency environment variable and rejects malformed values", () => {
+    expect(
+      gatewayConfigFromEnv({ CLAWLER_GATEWAY_TOKEN: token, CLAWLER_GATEWAY_CONCURRENCY: "4" }),
+    ).toEqual({ token, port: 17840, concurrency: 4 });
+    expect(() =>
+      gatewayConfigFromEnv({ CLAWLER_GATEWAY_TOKEN: token, CLAWLER_GATEWAY_CONCURRENCY: "0" }),
+    ).toThrow();
+    expect(() =>
+      gatewayConfigFromEnv({ CLAWLER_GATEWAY_TOKEN: token, CLAWLER_GATEWAY_CONCURRENCY: "NaN" }),
+    ).toThrow();
+    expect(() =>
+      gatewayConfigFromEnv({ CLAWLER_GATEWAY_TOKEN: token, CLAWLER_GATEWAY_CONCURRENCY: "9" }),
+    ).toThrow();
+  });
+
   it("accepts the previous token during rotation and rejects others", async () => {
     expect(
       gatewayConfigFromEnv({

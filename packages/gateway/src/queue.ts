@@ -11,6 +11,7 @@ import {
   runSchema,
   toErrorCode,
   webhookDeliverySchema,
+  z,
 } from "@clawler/contracts";
 import { WebhookOutbox, type WebhookOutboxOptions } from "./outbox";
 import type { GatewayRepository } from "./repository";
@@ -35,6 +36,8 @@ export interface GatewayQueueOptions {
   maxStored?: number;
   /** Byte budget for archived artifacts; oldest terminal jobs are evicted once exceeded. */
   maxArtifactBytes?: number;
+  /** Bounded number of jobs the queue executes in parallel. Default 1, max 8. */
+  concurrency?: number;
   fetch?: typeof fetch;
 }
 
@@ -42,8 +45,8 @@ export type JobListener = (job: GatewayJob) => void;
 
 export class GatewayQueue {
   private writes: Promise<unknown> = Promise.resolve();
-  private worker: Promise<void> | undefined;
-  private active: { id: string; controller: AbortController } | undefined;
+  private readonly workers = new Set<Promise<void>>();
+  private readonly active = new Map<string, AbortController>();
   private closing = false;
   private storageFailed = false;
   private started = false;
@@ -58,6 +61,7 @@ export class GatewayQueue {
     private readonly maxPending: number,
     private readonly maxStored: number,
     private readonly maxArtifactBytes: number,
+    private readonly concurrency: number,
     private readonly fetchFn?: typeof fetch,
   ) {}
 
@@ -76,6 +80,12 @@ export class GatewayQueue {
       await repository.archive(job);
     }
     const maxStored = options.maxStored ?? 1000;
+    const concurrency = z
+      .number()
+      .int()
+      .min(1)
+      .max(8)
+      .parse(options.concurrency ?? 1);
     await repository.save(state);
     const queue = new GatewayQueue(
       repository,
@@ -84,6 +94,7 @@ export class GatewayQueue {
       options.maxPending ?? 100,
       maxStored,
       options.maxArtifactBytes ?? 2 * 1024 * 1024 * 1024,
+      concurrency,
       options.fetch,
     );
     // Never start the outbox loop here: running() is false until start() flips
@@ -145,7 +156,7 @@ export class GatewayQueue {
       maxStored: this.maxStored,
       artifactBytes: [...bytes.values()].reduce((total, value) => total + value, 0),
       maxArtifactBytes: this.maxArtifactBytes,
-      concurrency: 1,
+      concurrency: this.concurrency,
       deliveriesPending: deliveries.filter((entry) => entry.status === "pending").length,
     };
   }
@@ -160,7 +171,8 @@ export class GatewayQueue {
       await this.repository.archive(job);
     } catch (error) {
       this.storageFailed = true;
-      this.active?.controller.abort(new AppError("STORAGE_FAILED"));
+      for (const controller of this.active.values())
+        controller.abort(new AppError("STORAGE_FAILED"));
       throw new AppError("STORAGE_FAILED", { cause: error });
     }
   }
@@ -206,7 +218,8 @@ export class GatewayQueue {
         await this.repository.save(persisted, evicted);
       } catch (error) {
         this.storageFailed = true;
-        this.active?.controller.abort(new AppError("STORAGE_FAILED"));
+        for (const controller of this.active.values())
+          controller.abort(new AppError("STORAGE_FAILED"));
         throw error;
       }
       this.state = persisted;
@@ -381,22 +394,30 @@ export class GatewayQueue {
       } else if (current.status === "running") current.cancelRequested = true;
       return current;
     });
-    if (job.cancelRequested && this.active?.id === id)
-      this.active.controller.abort(new AppError("CANCELLED"));
+    if (job.cancelRequested) this.active.get(id)?.abort(new AppError("CANCELLED"));
     return job;
   }
 
   private kick(): void {
-    if (!this.started || this.worker || this.closing || this.storageFailed) return;
-    this.worker = this.drain()
-      .catch(() => {
-        this.storageFailed = true;
-        this.active?.controller.abort(new AppError("STORAGE_FAILED"));
-      })
-      .finally(() => {
-        this.worker = undefined;
-        if (this.state.jobs.some((job) => job.status === "queued")) this.kick();
-      });
+    while (
+      this.started &&
+      !this.closing &&
+      !this.storageFailed &&
+      this.workers.size < this.concurrency &&
+      this.state.jobs.some((job) => job.status === "queued")
+    ) {
+      const worker = this.drain()
+        .catch(() => {
+          this.storageFailed = true;
+          for (const controller of this.active.values())
+            controller.abort(new AppError("STORAGE_FAILED"));
+        })
+        .finally(() => {
+          this.workers.delete(worker);
+          if (this.state.jobs.some((job) => job.status === "queued")) this.kick();
+        });
+      this.workers.add(worker);
+    }
   }
 
   private async drain(): Promise<void> {
@@ -411,7 +432,7 @@ export class GatewayQueue {
       });
       if (!claimed) return;
       const controller = new AbortController();
-      this.active = { id: claimed.id, controller };
+      this.active.set(claimed.id, controller);
       if (this.closing || this.state.jobs.find((job) => job.id === claimed.id)?.cancelRequested)
         controller.abort(new AppError("CANCELLED"));
       let run: Run | null = null;
@@ -461,7 +482,7 @@ export class GatewayQueue {
         )
           this.startOutbox();
       });
-      this.active = undefined;
+      this.active.delete(claimed.id);
       if (busy && !this.closing) await new Promise((resolve) => setTimeout(resolve, 200));
     }
   }
@@ -469,8 +490,8 @@ export class GatewayQueue {
   async close(): Promise<void> {
     this.closing = true;
     this.listeners.clear();
-    this.active?.controller.abort(new AppError("CANCELLED"));
-    await this.worker;
+    for (const controller of this.active.values()) controller.abort(new AppError("CANCELLED"));
+    await Promise.all([...this.workers]);
     await this.writes;
     await this.outbox?.stop();
   }
