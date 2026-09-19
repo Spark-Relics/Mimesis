@@ -99,6 +99,8 @@ async function createWindow(): Promise<void> {
     const gatewayOptions: GatewayQueueOptions = {};
     if (gatewayConfig.concurrency !== undefined)
       gatewayOptions.concurrency = gatewayConfig.concurrency;
+    if (gatewayConfig.jobTimeoutMs !== undefined)
+      gatewayOptions.jobTimeoutMs = gatewayConfig.jobTimeoutMs;
     gatewayQueue = await GatewayQueue.open(gatewayRepository, service, gatewayOptions);
     gatewayServer = await GatewayServer.listen(
       gatewayConfig,

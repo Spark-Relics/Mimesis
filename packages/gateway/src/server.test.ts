@@ -272,6 +272,33 @@ describe("local HTTP gateway", () => {
     ).toThrow();
   });
 
+  it("parses the optional job timeout environment variable and rejects malformed values", () => {
+    expect(
+      gatewayConfigFromEnv({
+        CLAWLER_GATEWAY_TOKEN: token,
+        CLAWLER_GATEWAY_JOB_TIMEOUT_MS: "60000",
+      }),
+    ).toEqual({ token, port: 17840, jobTimeoutMs: 60000 });
+    expect(() =>
+      gatewayConfigFromEnv({
+        CLAWLER_GATEWAY_TOKEN: token,
+        CLAWLER_GATEWAY_JOB_TIMEOUT_MS: "-1",
+      }),
+    ).toThrow();
+    expect(() =>
+      gatewayConfigFromEnv({
+        CLAWLER_GATEWAY_TOKEN: token,
+        CLAWLER_GATEWAY_JOB_TIMEOUT_MS: "NaN",
+      }),
+    ).toThrow();
+    expect(() =>
+      gatewayConfigFromEnv({
+        CLAWLER_GATEWAY_TOKEN: token,
+        CLAWLER_GATEWAY_JOB_TIMEOUT_MS: "86400001",
+      }),
+    ).toThrow();
+  });
+
   it("accepts the previous token during rotation and rejects others", async () => {
     expect(
       gatewayConfigFromEnv({

@@ -38,6 +38,8 @@ export interface GatewayQueueOptions {
   maxArtifactBytes?: number;
   /** Bounded number of jobs the queue executes in parallel. Default 1, max 8. */
   concurrency?: number;
+  /** Per-job execution budget in milliseconds. Default 0 disables the timeout. */
+  jobTimeoutMs?: number;
   fetch?: typeof fetch;
 }
 
@@ -62,6 +64,7 @@ export class GatewayQueue {
     private readonly maxStored: number,
     private readonly maxArtifactBytes: number,
     private readonly concurrency: number,
+    private readonly jobTimeoutMs: number,
     private readonly fetchFn?: typeof fetch,
   ) {}
 
@@ -86,6 +89,12 @@ export class GatewayQueue {
       .min(1)
       .max(8)
       .parse(options.concurrency ?? 1);
+    const jobTimeoutMs = z
+      .number()
+      .int()
+      .min(0)
+      .max(86_400_000)
+      .parse(options.jobTimeoutMs ?? 0);
     await repository.save(state);
     const queue = new GatewayQueue(
       repository,
@@ -95,6 +104,7 @@ export class GatewayQueue {
       maxStored,
       options.maxArtifactBytes ?? 2 * 1024 * 1024 * 1024,
       concurrency,
+      jobTimeoutMs,
       options.fetch,
     );
     // Never start the outbox loop here: running() is false until start() flips
@@ -157,6 +167,7 @@ export class GatewayQueue {
       artifactBytes: [...bytes.values()].reduce((total, value) => total + value, 0),
       maxArtifactBytes: this.maxArtifactBytes,
       concurrency: this.concurrency,
+      jobTimeoutMs: this.jobTimeoutMs,
       deliveriesPending: deliveries.filter((entry) => entry.status === "pending").length,
     };
   }
@@ -435,6 +446,12 @@ export class GatewayQueue {
       this.active.set(claimed.id, controller);
       if (this.closing || this.state.jobs.find((job) => job.id === claimed.id)?.cancelRequested)
         controller.abort(new AppError("CANCELLED"));
+      // Budget guard: a hung executor must not occupy a concurrency slot forever.
+      const timeout =
+        this.jobTimeoutMs > 0
+          ? setTimeout(() => controller.abort(new AppError("TIMEOUT")), this.jobTimeoutMs)
+          : undefined;
+      if (timeout) timeout.unref?.();
       let run: Run | null = null;
       let errorCode: GatewayJob["errorCode"] = null;
       let busy = false;
@@ -454,6 +471,8 @@ export class GatewayQueue {
         errorCode = toErrorCode(error);
         busy = errorCode === "BUSY";
         run = null;
+      } finally {
+        if (timeout) clearTimeout(timeout);
       }
       await this.change(async (next) => {
         const job = next.jobs.find((entry) => entry.id === claimed.id);

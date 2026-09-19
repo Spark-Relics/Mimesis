@@ -13,7 +13,7 @@ import { GatewayQueue } from "./queue";
 function executor() {
   return {
     resolve: vi.fn(() => structuredClone(execution)),
-    execute: vi.fn(async (_execution: GatewayExecution) => completedRun()),
+    execute: vi.fn(async (_execution: GatewayExecution, _signal?: AbortSignal) => completedRun()),
   };
 }
 
@@ -569,6 +569,70 @@ describe("durable browser job queue", () => {
     ).rejects.toThrow();
     await expect(
       GatewayQueue.open(memoryRepository(), executor(), { concurrency: 9 }),
+    ).rejects.toThrow();
+  });
+
+  it("aborts a hung job once its execution budget is exhausted", async () => {
+    vi.useFakeTimers();
+    try {
+      const driver = executor();
+      driver.execute.mockImplementation(
+        (_execution: GatewayExecution, signal?: AbortSignal) =>
+          new Promise((_resolve, reject) => {
+            signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+          }),
+      );
+      const queue = await GatewayQueue.open(memoryRepository(), driver, {
+        jobTimeoutMs: 50,
+      });
+      const reply = await queue.submit(submission);
+      queue.start();
+      await vi.advanceTimersByTimeAsync(49);
+      expect(queue.get(reply.job.id).status).toBe("running");
+      await vi.advanceTimersByTimeAsync(1);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(queue.get(reply.job.id).status).toBe("failed");
+      expect(queue.get(reply.job.id).errorCode).toBe("TIMEOUT");
+      expect(queue.health().jobTimeoutMs).toBe(50);
+      await queue.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("runs a slow job to success when no budget is configured", async () => {
+    vi.useFakeTimers();
+    try {
+      const driver = executor();
+      let release: ((value: Run) => void) | undefined;
+      driver.execute.mockImplementation(
+        () =>
+          new Promise<Run>((resolve) => {
+            release = resolve;
+          }),
+      );
+      const queue = await GatewayQueue.open(memoryRepository(), driver);
+      const reply = await queue.submit(submission);
+      queue.start();
+      await vi.advanceTimersByTimeAsync(86_400_000);
+      expect(queue.get(reply.job.id).status).toBe("running");
+      release?.(completedRun());
+      await vi.waitFor(() => expect(queue.get(reply.job.id).status).toBe("succeeded"));
+      await queue.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects job timeout outside the supported range", async () => {
+    await expect(
+      GatewayQueue.open(memoryRepository(), executor(), { jobTimeoutMs: -1 }),
+    ).rejects.toThrow();
+    await expect(
+      GatewayQueue.open(memoryRepository(), executor(), { jobTimeoutMs: 1.5 }),
+    ).rejects.toThrow();
+    await expect(
+      GatewayQueue.open(memoryRepository(), executor(), { jobTimeoutMs: 86_400_001 }),
     ).rejects.toThrow();
   });
 });
