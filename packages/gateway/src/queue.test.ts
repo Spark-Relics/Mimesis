@@ -535,6 +535,52 @@ describe("durable browser job queue", () => {
     await queue.close();
   });
 
+  it("claims queued jobs round-robin across workflows instead of strict FIFO", async () => {
+    const catalog = structuredClone(execution);
+    const watcher: GatewayExecution = {
+      ...structuredClone(execution),
+      instance: {
+        ...catalog.instance,
+        id: "00000000-0000-4000-8000-000000000003",
+        scriptId: "price-watcher",
+      },
+    };
+    const order: string[] = [];
+    const driver = {
+      resolve: vi.fn((input: { instanceId: string }) =>
+        structuredClone(input.instanceId === watcher.instance.id ? watcher : catalog),
+      ),
+      execute: vi.fn(async (claimed: GatewayExecution) => {
+        order.push(claimed.instance.scriptId);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return {
+          ...completedRun(),
+          instanceId: claimed.instance.id,
+          scriptId: claimed.instance.scriptId,
+          version: claimed.scriptVersion,
+        };
+      }),
+    };
+    const queue = await GatewayQueue.open(memoryRepository(), driver, { maxPending: 10 });
+    const submissions = [
+      { instanceId: catalog.instance.id },
+      { instanceId: catalog.instance.id },
+      { instanceId: catalog.instance.id },
+      { instanceId: watcher.instance.id },
+    ];
+    const jobs = await Promise.all(
+      submissions.map((input, index) => queue.submit(input, `fair-${index}`)),
+    );
+    queue.start();
+    await vi.waitFor(() => {
+      for (const reply of jobs) expect(queue.get(reply.job.id).status).toBe("succeeded");
+    });
+    // The watcher job must not wait behind the whole catalog burst.
+    expect(order.indexOf("price-watcher")).toBe(1);
+    expect(order).toHaveLength(4);
+    await queue.close();
+  });
+
   it("cancelling one running job does not abort its neighbours", async () => {
     const driver = executor();
     const gates: Array<(value: Run) => void> = [];

@@ -45,6 +45,11 @@ export interface GatewayQueueOptions {
 
 export type JobListener = (job: GatewayJob) => void;
 
+/** Fair-scheduling group: one queue lane per published workflow. */
+function fairGroupOf(job: GatewayJob): string {
+  return `${job.execution.instance.scriptId}@${job.execution.scriptVersion}`;
+}
+
 export class GatewayQueue {
   private writes: Promise<unknown> = Promise.resolve();
   private readonly workers = new Set<Promise<void>>();
@@ -409,6 +414,9 @@ export class GatewayQueue {
     return job;
   }
 
+  /** Claims served per workflow group (scriptId@version) within the current busy period. */
+  private readonly fairCounts = new Map<string, number>();
+
   private kick(): void {
     while (
       this.started &&
@@ -433,10 +441,25 @@ export class GatewayQueue {
 
   private async drain(): Promise<void> {
     while (!this.closing && !this.storageFailed) {
-      if (!this.state.jobs.some((job) => job.status === "queued")) return;
+      if (!this.state.jobs.some((job) => job.status === "queued")) {
+        // Fair-scheduling bookkeeping only spans busy periods; an idle queue forgets history.
+        this.fairCounts.clear();
+        return;
+      }
       const claimed = await this.change((next) => {
-        const job = next.jobs.find((entry) => entry.status === "queued");
-        if (!job || this.closing) return null;
+        const queued = next.jobs.filter((entry) => entry.status === "queued");
+        if (queued.length === 0 || this.closing) return null;
+        const served = (key: string) => this.fairCounts.get(key) ?? 0;
+        let job = queued[0] as GatewayJob;
+        let group = fairGroupOf(job);
+        for (const entry of queued.slice(1)) {
+          const key = fairGroupOf(entry);
+          if (served(key) < served(group)) {
+            job = entry;
+            group = key;
+          }
+        }
+        this.fairCounts.set(group, served(group) + 1);
         job.status = "running";
         job.startedAt = new Date().toISOString();
         return job;
