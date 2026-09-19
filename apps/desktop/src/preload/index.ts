@@ -99,6 +99,13 @@ const bridge: DesktopBridge = {
     await request({ method: "recording.start" });
   },
   stopRecording: async () => recordingSchema.parse(await request({ method: "recording.stop" })),
+  startPicker: async () => {
+    await request({ method: "picker.start" });
+  },
+  pickElement: async () => z.string().parse(await request({ method: "picker.pick" })),
+  cancelPick: async () => {
+    await request({ method: "picker.cancel" });
+  },
   controlWindow: async (action) => {
     await request({ method: "window.control", action });
   },

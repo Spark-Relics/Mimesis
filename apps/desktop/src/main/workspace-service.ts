@@ -279,6 +279,21 @@ export class WorkspaceService {
         return null;
       case "recording.stop":
         return this.host.recorder.stop();
+      case "picker.start":
+        this.assertIdle();
+        if (this.host.recorder.active) throw new AppError("BUSY");
+        this.mutationPending = true;
+        try {
+          await this.host.startPicker();
+        } finally {
+          this.mutationPending = false;
+        }
+        return null;
+      case "picker.pick":
+        return this.host.picker.result();
+      case "picker.cancel":
+        await this.host.picker.cancel();
+        return null;
       case "workflow.save": {
         this.assertIdle();
         if (this.host.recorder.active) throw new AppError("BUSY");

@@ -16,6 +16,7 @@ import { BrowserAutomation } from "./automation";
 import { demoPage, detailListPage, detailPages } from "./demo-page";
 import { HttpHost } from "./http";
 import { highlightElements, observeStructure } from "./observe-script";
+import { ElementPicker } from "./picker";
 import { BrowserRecorder } from "./recorder";
 
 export { HttpHost };
@@ -55,8 +56,14 @@ const demoPages = new Map<string, string>([
 export class BrowserHost implements BrowserPort {
   readonly automation = new BrowserAutomation(() => this.getContents());
   readonly recorder = new BrowserRecorder();
+  readonly picker = new ElementPicker();
   async startRecording(): Promise<void> {
+    if (this.picker.active) throw new AppError("BUSY");
     await this.recorder.start(this.getContents());
+  }
+  async startPicker(): Promise<void> {
+    if (this.recorder.active) throw new AppError("BUSY");
+    await this.picker.begin(this.getContents());
   }
   private readonly views = new Map<string, WebContentsView>();
   private current: WebContentsView | undefined;
@@ -255,6 +262,7 @@ export class BrowserHost implements BrowserPort {
 
   dispose(): void {
     if (this.recorder.active) void this.recorder.stop();
+    if (this.picker.active) void this.picker.cancel();
     for (const view of this.views.values()) {
       if (!view.webContents.isDestroyed()) view.webContents.close();
     }

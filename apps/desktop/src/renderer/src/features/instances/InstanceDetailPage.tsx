@@ -10,7 +10,6 @@ import { useI18n } from "@clawler/i18n";
 import { Badge, Button, cn } from "@clawler/ui";
 import {
   ArrowLeft,
-  Braces,
   Circle,
   FileClock,
   FlaskConical,
@@ -36,7 +35,6 @@ import { InstanceConfiguration } from "./InstanceConfiguration";
 
 const detailTabs = [
   { id: "browser", key: "flowBrowse", icon: Globe2 },
-  { id: "workflow", key: "flowConfigure", icon: Braces },
   { id: "config", key: "instanceConfig", icon: Settings2 },
   { id: "versions", key: "instanceVersions", icon: History },
   { id: "runs", key: "instanceRuns", icon: FileClock },
@@ -329,176 +327,170 @@ export function InstanceDetailPage({
       )}
       <div className="instance-detail-content">
         {tab === "browser" && (
-          <div className="collection-browser">
-            <div className="recording-toolbar">
-              <div>
-                <strong>{t("flowRecordTitle")}</strong>
-                <p>{t("flowRecordHint")}</p>
+          <div className="collection-browser collection-split">
+            <div className="split-browser">
+              <div className="recording-toolbar">
+                <div>
+                  <strong>{t("flowRecordTitle")}</strong>
+                  <p>{t("flowRecordHint")}</p>
+                </div>
+                {!recording && (
+                  <Button
+                    disabled={disabled}
+                    onClick={() =>
+                      void perform(async () => {
+                        await bridge.startRecording();
+                        recorderOwned.current = true;
+                        setRecording(true);
+                        onRecordingChange(true);
+                      })
+                    }
+                  >
+                    <Circle size={13} />
+                    {t("flowStartRecording")}
+                  </Button>
+                )}
+                {recording && (
+                  <Button
+                    tone="danger"
+                    disabled={busy}
+                    onClick={() =>
+                      void perform(async () => {
+                        const recorded = await bridge.stopRecording();
+                        recorderOwned.current = false;
+                        setRecording(false);
+                        onRecordingChange(false);
+                        setUrl(recorded.url);
+                        setWorkflow({ ...workflow, before: recorded.actions });
+                        setMessage(
+                          t("flowRecorded", {
+                            count: recorded.actions.length,
+                            skipped: recorded.skipped,
+                          }),
+                        );
+                      })
+                    }
+                  >
+                    <Square size={13} />
+                    {t("flowStopRecording")}
+                  </Button>
+                )}
               </div>
-              {!recording && (
-                <Button
-                  disabled={disabled}
-                  onClick={() =>
-                    void perform(async () => {
-                      await bridge.startRecording();
-                      recorderOwned.current = true;
-                      setRecording(true);
-                      onRecordingChange(true);
-                    })
-                  }
-                >
-                  <Circle size={13} />
-                  {t("flowStartRecording")}
-                </Button>
-              )}
               {recording && (
-                <Button
-                  tone="danger"
-                  disabled={busy}
-                  onClick={() =>
-                    void perform(async () => {
-                      const recorded = await bridge.stopRecording();
-                      recorderOwned.current = false;
-                      setRecording(false);
-                      onRecordingChange(false);
-                      setUrl(recorded.url);
-                      setWorkflow({ ...workflow, before: recorded.actions });
-                      setMessage(
-                        t("flowRecorded", {
-                          count: recorded.actions.length,
-                          skipped: recorded.skipped,
-                        }),
-                      );
-                      setTab("workflow");
-                    })
-                  }
-                >
-                  <Square size={13} />
-                  {t("flowStopRecording")}
-                </Button>
+                <p className="recording-indicator" role="status">
+                  {t("flowRecording")}
+                </p>
               )}
-            </div>
-            {recording && (
-              <p className="recording-indicator" role="status">
-                {t("flowRecording")}
-              </p>
-            )}
-            <BrowserPanel
-              profiles={workspace.profiles}
-              selectedProfileId={workspace.selectedProfileId}
-              disabled={disabled || recording}
-              url={url}
-              onUrlChange={setUrl}
-              onNavigate={() => onNavigate(url)}
-              onSelectProfile={onSelectProfile}
-            />
-            <div className="workflow-actions browser-next">
-              <Button
+              <BrowserPanel
+                profiles={workspace.profiles}
+                selectedProfileId={workspace.selectedProfileId}
                 disabled={disabled || recording}
-                onClick={() => {
-                  setUrl("https://quotes.toscrape.com/");
-                  setWorkflow(structuredClone(quotesWorkflow));
-                  onNavigate("https://quotes.toscrape.com/");
-                  setMessage(t("flowPresetLoaded"));
-                }}
-              >
-                {t("flowQuotesPreset")}
-              </Button>
-              <Button
-                disabled={disabled || recording}
-                onClick={() => {
-                  setUrl("https://www.tiktok.com/@_forexsignals_");
-                  setWorkflow(structuredClone(tiktokProfileWorkflow));
-                  onNavigate("https://www.tiktok.com/@_forexsignals_");
-                  setMessage(t("flowTiktokPresetLoaded"));
-                }}
-              >
-                {t("flowTiktokPreset")}
-              </Button>
-              <Button
-                tone="primary"
-                disabled={recording || busy}
-                onClick={() => setTab("workflow")}
-              >
-                {t("flowConfigure")}
-              </Button>
-            </div>
-          </div>
-        )}
-        {tab === "workflow" && (
-          <div className="workflow-workspace">
-            <div className="workflow-intro">
-              <div>
-                <h2>{t("flowRecipeTitle")}</h2>
-                <p>{t("flowRecipeHint")}</p>
+                url={url}
+                onUrlChange={setUrl}
+                onNavigate={() => onNavigate(url)}
+                onSelectProfile={onSelectProfile}
+              />
+              <div className="workflow-actions browser-next">
+                <Button
+                  disabled={disabled || recording}
+                  onClick={() => {
+                    setUrl("https://quotes.toscrape.com/");
+                    setWorkflow(structuredClone(quotesWorkflow));
+                    onNavigate("https://quotes.toscrape.com/");
+                    setMessage(t("flowPresetLoaded"));
+                  }}
+                >
+                  {t("flowQuotesPreset")}
+                </Button>
+                <Button
+                  disabled={disabled || recording}
+                  onClick={() => {
+                    setUrl("https://www.tiktok.com/@_forexsignals_");
+                    setWorkflow(structuredClone(tiktokProfileWorkflow));
+                    onNavigate("https://www.tiktok.com/@_forexsignals_");
+                    setMessage(t("flowTiktokPresetLoaded"));
+                  }}
+                >
+                  {t("flowTiktokPreset")}
+                </Button>
               </div>
-              <Badge>{t("flowExecutable")}</Badge>
             </div>
-            <label className="workflow-field">
-              {t("targetUrl")}
-              <input
-                value={url}
-                disabled={disabled}
-                onChange={(event) => setUrl(event.target.value)}
-              />
-            </label>
-            {workflow.before.at(-1)?.kind === "click" && (
-              <Button disabled={disabled} onClick={useLastClick}>
-                {t("flowLastClickLoop")}
-              </Button>
-            )}
-            <CollectionEditor
-              workflow={workflow}
-              onChange={setWorkflow}
-              disabled={disabled}
-              url={url}
-            />
-            <section className="workflow-section">
-              <h2>{t("flowParameters")}</h2>
-              <p className="workflow-muted">{t("flowParametersHint")}</p>
-              <textarea
-                className="workflow-parameters"
-                aria-label={t("flowParameters")}
-                value={parameters}
-                spellCheck={false}
-                disabled={disabled}
-                onChange={(event) => setParameters(event.target.value)}
-              />
-            </section>
-            <div className="workflow-actions workflow-footer">
-              <Button disabled={disabled} onClick={validate}>
-                {t("flowCheck")}
-              </Button>
-              <Button disabled={disabled} onClick={() => void showPlan()}>
-                {t("flowPlan")}
-              </Button>
-              <Button disabled={disabled} onClick={() => void dryRunDraft()}>
-                <FlaskConical size={13} />
-                {t("flowDryRun")}
-              </Button>
-              <Button disabled={disabled} onClick={() => void saveDraft()}>
-                <Save size={13} />
-                {t("flowSave")}
-              </Button>
-              <Button disabled={disabled} onClick={() => void publish(false)}>
-                <History size={13} />
-                {t("versionPublish")}
-              </Button>
-              <Button
-                tone="primary"
-                disabled={disabled || !instance.enabled}
-                onClick={() => void publish(true)}
-              >
-                <Play size={13} />
-                {t("flowSaveRun")}
-              </Button>
+            <div className="split-config">
+              <div className="workflow-workspace">
+                <div className="workflow-intro">
+                  <div>
+                    <h2>{t("flowRecipeTitle")}</h2>
+                    <p>{t("flowRecipeHint")}</p>
+                  </div>
+                  <Badge>{t("flowExecutable")}</Badge>
+                </div>
+                <label className="workflow-field">
+                  {t("targetUrl")}
+                  <input
+                    value={url}
+                    disabled={disabled}
+                    onChange={(event) => setUrl(event.target.value)}
+                  />
+                </label>
+                {workflow.before.at(-1)?.kind === "click" && (
+                  <Button disabled={disabled} onClick={useLastClick}>
+                    {t("flowLastClickLoop")}
+                  </Button>
+                )}
+                <CollectionEditor
+                  workflow={workflow}
+                  onChange={setWorkflow}
+                  disabled={disabled}
+                  url={url}
+                />
+                <section className="workflow-section">
+                  <h2>{t("flowParameters")}</h2>
+                  <p className="workflow-muted">{t("flowParametersHint")}</p>
+                  <textarea
+                    className="workflow-parameters"
+                    aria-label={t("flowParameters")}
+                    value={parameters}
+                    spellCheck={false}
+                    disabled={disabled}
+                    onChange={(event) => setParameters(event.target.value)}
+                  />
+                </section>
+                <div className="workflow-actions workflow-footer">
+                  <Button disabled={disabled} onClick={validate}>
+                    {t("flowCheck")}
+                  </Button>
+                  <Button disabled={disabled} onClick={() => void showPlan()}>
+                    {t("flowPlan")}
+                  </Button>
+                  <Button disabled={disabled} onClick={() => void dryRunDraft()}>
+                    <FlaskConical size={13} />
+                    {t("flowDryRun")}
+                  </Button>
+                  <Button disabled={disabled} onClick={() => void saveDraft()}>
+                    <Save size={13} />
+                    {t("flowSave")}
+                  </Button>
+                  <Button disabled={disabled} onClick={() => void publish(false)}>
+                    <History size={13} />
+                    {t("versionPublish")}
+                  </Button>
+                  <Button
+                    tone="primary"
+                    disabled={disabled || !instance.enabled}
+                    onClick={() => void publish(true)}
+                  >
+                    <Play size={13} />
+                    {t("flowSaveRun")}
+                  </Button>
+                </div>
+                <details className="workflow-api">
+                  <summary>{t("flowApi")}</summary>
+                  <p>{t("flowApiHint")}</p>
+                  <pre>{JSON.stringify({ instanceId: instance.id, parameters: {} }, null, 2)}</pre>
+                  <code>{"/v1/jobs → /v1/jobs/:id → /v1/jobs/:id/result?format=csv"}</code>
+                </details>
+              </div>
             </div>
-            <details className="workflow-api">
-              <summary>{t("flowApi")}</summary>
-              <p>{t("flowApiHint")}</p>
-              <pre>{JSON.stringify({ instanceId: instance.id, parameters: {} }, null, 2)}</pre>
-              <code>{"/v1/jobs → /v1/jobs/:id → /v1/jobs/:id/result?format=csv"}</code>
-            </details>
           </div>
         )}
         {tab === "versions" && (

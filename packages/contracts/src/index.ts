@@ -719,6 +719,9 @@ export const requestSchema = z.discriminatedUnion("method", [
   z.object({ method: z.literal("browser.clearHighlight") }),
   z.object({ method: z.literal("recording.start") }),
   z.object({ method: z.literal("recording.stop") }),
+  z.object({ method: z.literal("picker.start") }),
+  z.object({ method: z.literal("picker.pick") }),
+  z.object({ method: z.literal("picker.cancel") }),
   z.object({ method: z.literal("window.control"), action: windowControlSchema }),
   z.object({
     method: z.literal("runs.start"),
@@ -770,6 +773,11 @@ export interface DesktopBridge {
   clearHighlight(): Promise<void>;
   startRecording(): Promise<void>;
   stopRecording(): Promise<Recording>;
+  /** Turns on click-to-pick; the following pickElement call resolves with the clicked element's selector. */
+  startPicker(): Promise<void>;
+  /** Resolves once the user clicks an element in the embedded page; rejects when picking is cancelled. */
+  pickElement(): Promise<string>;
+  cancelPick(): Promise<void>;
   controlWindow(action: WindowControl): Promise<void>;
   startRun(instanceId: string, parameters?: Record<string, string>): Promise<Run>;
   /** Bounded single-page dry run of a draft workflow. Never persisted to run history. */

@@ -7,11 +7,113 @@ import {
   type WorkflowAction,
 } from "@clawler/contracts";
 import { useI18n } from "@clawler/i18n";
-import { Button } from "@clawler/ui";
-import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { Button, cn } from "@clawler/ui";
+import { ArrowDown, ArrowUp, Crosshair, Plus, Trash2 } from "lucide-react";
+import { createContext, useContext, useEffect, useState } from "react";
+import { bridge, isDesktop } from "../../platform/bridge";
 import { stepKeys } from "../../shared/presentation";
 import { SuggestPanel } from "./SuggestPanel";
+
+/** Click-to-pick API shared by every selector input; null when unavailable. */
+interface PickerApi {
+  target: string | null;
+  begin(target: string, apply: (selector: string) => void): void;
+  cancel(): void;
+}
+const PickerContext = createContext<PickerApi | null>(null);
+
+/** One active pick at a time; Esc cancels and returns to normal browsing. */
+function useElementPicker(): PickerApi {
+  const [target, setTarget] = useState<string | null>(null);
+  useEffect(() => {
+    if (!target) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") void bridge.cancelPick().catch(() => undefined);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [target]);
+  return {
+    target,
+    begin(nextTarget, apply) {
+      if (target) return;
+      setTarget(nextTarget);
+      void (async () => {
+        try {
+          await bridge.startPicker();
+          apply(await bridge.pickElement());
+        } catch {
+          // Cancelled or unavailable: back to editing, nothing to report.
+        } finally {
+          setTarget(null);
+        }
+      })();
+    },
+    cancel() {
+      void bridge.cancelPick().catch(() => undefined);
+    },
+  };
+}
+
+/** Small crosshair button rendered beside a selector input. */
+function PickButton({
+  target,
+  apply,
+  disabled,
+}: {
+  target: string;
+  apply(selector: string): void;
+  disabled?: boolean;
+}) {
+  const { t } = useI18n();
+  const picker = useContext(PickerContext);
+  if (!picker) return null;
+  const active = picker.target === target;
+  return (
+    <button
+      type="button"
+      className={cn("pick-button", active && "is-active")}
+      disabled={disabled || (picker.target !== null && !active)}
+      title={active ? t("pickActiveHint") : t("pickHint")}
+      onClick={() => (active ? picker.cancel() : picker.begin(target, apply))}
+    >
+      <Crosshair size={13} />
+      {active ? t("pickPicking") : t("pickLabel")}
+    </button>
+  );
+}
+
+/** Input + pick button in one row so selector and click-to-pick stay together. */
+function SelectorPickRow({
+  value,
+  placeholder,
+  disabled,
+  target,
+  onApply,
+  onChange,
+  ariaLabel,
+}: {
+  value: string;
+  placeholder?: string;
+  disabled: boolean;
+  target: string;
+  onApply(selector: string): void;
+  onChange(value: string): void;
+  ariaLabel: string;
+}) {
+  return (
+    <div className="pick-row">
+      <input
+        aria-label={ariaLabel}
+        value={value}
+        placeholder={placeholder}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <PickButton target={target} apply={onApply} disabled={disabled} />
+    </div>
+  );
+}
 
 export const emptyWorkflow: CollectionWorkflow = {
   version: 1,
@@ -262,15 +364,18 @@ function ClickPaginationFields({
   const { t } = useI18n();
   return (
     <div className="workflow-form-row">
-      <label className="workflow-field">
-        {t("flowNext")}
-        <input
+      <div className="workflow-field">
+        <span>{t("flowNext")}</span>
+        <SelectorPickRow
           value={pagination.next}
-          disabled={disabled}
           placeholder={t("flowNextExample")}
-          onChange={(event) => onChange({ ...pagination, next: event.target.value })}
+          disabled={disabled}
+          target="pagination.next"
+          ariaLabel={t("flowNext")}
+          onChange={(next) => onChange({ ...pagination, next })}
+          onApply={(next) => onChange({ ...pagination, next })}
         />
-      </label>
+      </div>
     </div>
   );
 }
@@ -288,6 +393,7 @@ export function CollectionEditor({
   url: string;
 }) {
   const { t } = useI18n();
+  const picker = useElementPicker();
   const [source, setSource] = useState("");
   const [error, setError] = useState("");
   const [, setMessage] = useState("");
@@ -334,699 +440,711 @@ export function CollectionEditor({
     onChange(result);
   }
   return (
-    <div className="collection-editor">
-      <section className="workflow-section">
-        <div className="workflow-section-title">
-          <span>{"01"}</span>
-          <div>
-            <h2>{t("flowBefore")}</h2>
-            <p>{t("flowBeforeHint")}</p>
+    <PickerContext.Provider value={isDesktop ? picker : null}>
+      <div className="collection-editor">
+        <section className="workflow-section">
+          <div className="workflow-section-title">
+            <span>{"01"}</span>
+            <div>
+              <h2>{t("flowBefore")}</h2>
+              <p>{t("flowBeforeHint")}</p>
+            </div>
           </div>
-        </div>
-        {!workflow.before.length && <p className="workflow-muted">{t("flowNoActions")}</p>}
-        <ol className="recorded-actions">
-          {workflow.before.map((entry, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: These controlled inputs represent ordered script slots and hold no row-local state.
-            <li key={`action-${index}-${entry.kind}`}>
-              <span className="action-number">{index + 1}</span>
-              <strong>{t(stepKeys[entry.kind])}</strong>
-              {entry.kind === "request" && (
-                <div className="request-fields">
-                  <select
-                    aria-label={t("flowRequestMethod")}
-                    value={entry.request.method}
-                    disabled={disabled}
-                    onChange={(event) =>
-                      action(index, {
-                        ...entry,
-                        request: {
-                          ...entry.request,
-                          method: event.target.value as HttpRequestSpec["method"],
-                        },
-                      })
-                    }
-                  >
-                    {(["GET", "POST", "PUT", "PATCH", "DELETE"] as const).map((method) => (
-                      <option key={method} value={method}>
-                        {method}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    aria-label={t("flowRequestUrl")}
-                    placeholder={t("flowRequestUrlPlaceholder")}
-                    value={entry.request.url}
-                    disabled={disabled}
-                    onChange={(event) =>
-                      action(index, {
-                        ...entry,
-                        request: { ...entry.request, url: event.target.value },
-                      })
-                    }
-                  />
-                  <input
-                    aria-label={t("flowRequestCapture")}
-                    placeholder={t("flowRequestCapturePlaceholder")}
-                    value={entry.request.capture?.name ?? ""}
-                    disabled={disabled}
-                    onChange={(event) => {
-                      // Empty means "do not capture"; the capture block is dropped.
-                      const name = event.target.value;
-                      if (!name) {
+          {!workflow.before.length && <p className="workflow-muted">{t("flowNoActions")}</p>}
+          <ol className="recorded-actions">
+            {workflow.before.map((entry, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: These controlled inputs represent ordered script slots and hold no row-local state.
+              <li key={`action-${index}-${entry.kind}`}>
+                <span className="action-number">{index + 1}</span>
+                <strong>{t(stepKeys[entry.kind])}</strong>
+                {entry.kind === "request" && (
+                  <div className="request-fields">
+                    <select
+                      aria-label={t("flowRequestMethod")}
+                      value={entry.request.method}
+                      disabled={disabled}
+                      onChange={(event) =>
                         action(index, {
                           ...entry,
-                          request: { ...entry.request, capture: undefined },
-                        });
-                        return;
+                          request: {
+                            ...entry.request,
+                            method: event.target.value as HttpRequestSpec["method"],
+                          },
+                        })
                       }
-                      action(index, {
-                        ...entry,
-                        request: { ...entry.request, capture: { name, maxLength: 64000 } },
-                      });
-                    }}
-                  />
-                  <input
-                    type="number"
-                    min={0}
-                    max={5}
-                    aria-label={t("flowRequestRetries")}
-                    placeholder={t("flowRequestRetriesPlaceholder")}
-                    value={entry.request.retries ?? 0}
-                    disabled={disabled}
-                    onChange={(event) => {
-                      const value = Number(event.target.value);
-                      const request = { ...entry.request };
-                      // Zero means "no retry"; the key is dropped to keep the digest unchanged.
-                      if (value > 0) request.retries = value;
-                      else delete request.retries;
-                      action(index, { ...entry, request });
-                    }}
-                  />
-                  <input
-                    type="number"
-                    min={0}
-                    max={10000}
-                    aria-label={t("flowRequestRetryDelay")}
-                    placeholder={t("flowRequestRetryDelayPlaceholder")}
-                    value={entry.request.retryDelayMs ?? 500}
-                    disabled={disabled}
-                    onChange={(event) => {
-                      const value = Number(event.target.value);
-                      const request = { ...entry.request };
-                      // The default backoff is omitted from the workflow to keep digests stable.
-                      if (value === 500) delete request.retryDelayMs;
-                      else request.retryDelayMs = value;
-                      action(index, { ...entry, request });
-                    }}
-                  />
-                  <label className="workflow-check">
+                    >
+                      {(["GET", "POST", "PUT", "PATCH", "DELETE"] as const).map((method) => (
+                        <option key={method} value={method}>
+                          {method}
+                        </option>
+                      ))}
+                    </select>
                     <input
-                      type="checkbox"
-                      checked={entry.request.useSession === true}
+                      aria-label={t("flowRequestUrl")}
+                      placeholder={t("flowRequestUrlPlaceholder")}
+                      value={entry.request.url}
+                      disabled={disabled}
+                      onChange={(event) =>
+                        action(index, {
+                          ...entry,
+                          request: { ...entry.request, url: event.target.value },
+                        })
+                      }
+                    />
+                    <input
+                      aria-label={t("flowRequestCapture")}
+                      placeholder={t("flowRequestCapturePlaceholder")}
+                      value={entry.request.capture?.name ?? ""}
                       disabled={disabled}
                       onChange={(event) => {
+                        // Empty means "do not capture"; the capture block is dropped.
+                        const name = event.target.value;
+                        if (!name) {
+                          action(index, {
+                            ...entry,
+                            request: { ...entry.request, capture: undefined },
+                          });
+                          return;
+                        }
+                        action(index, {
+                          ...entry,
+                          request: { ...entry.request, capture: { name, maxLength: 64000 } },
+                        });
+                      }}
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      max={5}
+                      aria-label={t("flowRequestRetries")}
+                      placeholder={t("flowRequestRetriesPlaceholder")}
+                      value={entry.request.retries ?? 0}
+                      disabled={disabled}
+                      onChange={(event) => {
+                        const value = Number(event.target.value);
                         const request = { ...entry.request };
-                        // Unchecked drops the key so isolated requests keep their old digest.
-                        if (event.target.checked) request.useSession = true;
-                        else delete request.useSession;
+                        // Zero means "no retry"; the key is dropped to keep the digest unchanged.
+                        if (value > 0) request.retries = value;
+                        else delete request.retries;
                         action(index, { ...entry, request });
                       }}
                     />
-                    <span>{t("flowRequestUseSession")}</span>
-                  </label>
-                  <textarea
-                    aria-label={t("flowRequestHeaders")}
-                    placeholder={t("flowRequestHeadersPlaceholder")}
-                    spellCheck={false}
-                    value={headerLines(entry.request.headers)}
-                    disabled={disabled}
-                    onChange={(event) =>
-                      action(index, {
-                        ...entry,
-                        request: { ...entry.request, headers: parseHeaders(event.target.value) },
-                      })
-                    }
-                  />
-                  <textarea
-                    aria-label={t("flowRequestBody")}
-                    placeholder={t("flowRequestBodyPlaceholder")}
-                    spellCheck={false}
-                    value={entry.request.body ?? ""}
+                    <input
+                      type="number"
+                      min={0}
+                      max={10000}
+                      aria-label={t("flowRequestRetryDelay")}
+                      placeholder={t("flowRequestRetryDelayPlaceholder")}
+                      value={entry.request.retryDelayMs ?? 500}
+                      disabled={disabled}
+                      onChange={(event) => {
+                        const value = Number(event.target.value);
+                        const request = { ...entry.request };
+                        // The default backoff is omitted from the workflow to keep digests stable.
+                        if (value === 500) delete request.retryDelayMs;
+                        else request.retryDelayMs = value;
+                        action(index, { ...entry, request });
+                      }}
+                    />
+                    <label className="workflow-check">
+                      <input
+                        type="checkbox"
+                        checked={entry.request.useSession === true}
+                        disabled={disabled}
+                        onChange={(event) => {
+                          const request = { ...entry.request };
+                          // Unchecked drops the key so isolated requests keep their old digest.
+                          if (event.target.checked) request.useSession = true;
+                          else delete request.useSession;
+                          action(index, { ...entry, request });
+                        }}
+                      />
+                      <span>{t("flowRequestUseSession")}</span>
+                    </label>
+                    <textarea
+                      aria-label={t("flowRequestHeaders")}
+                      placeholder={t("flowRequestHeadersPlaceholder")}
+                      spellCheck={false}
+                      value={headerLines(entry.request.headers)}
+                      disabled={disabled}
+                      onChange={(event) =>
+                        action(index, {
+                          ...entry,
+                          request: { ...entry.request, headers: parseHeaders(event.target.value) },
+                        })
+                      }
+                    />
+                    <textarea
+                      aria-label={t("flowRequestBody")}
+                      placeholder={t("flowRequestBodyPlaceholder")}
+                      spellCheck={false}
+                      value={entry.request.body ?? ""}
+                      disabled={disabled}
+                      onChange={(event) => {
+                        const body = event.target.value;
+                        const request = { ...entry.request };
+                        // An empty body means "no body"; the key is dropped to keep the digest unchanged.
+                        if (body === "") delete request.body;
+                        else request.body = body;
+                        action(index, { ...entry, request });
+                      }}
+                    />
+                  </div>
+                )}
+                {entry.kind !== "request" && (
+                  <input
+                    aria-label={t("flowSelector")}
+                    value={entry.selector ?? ""}
                     disabled={disabled}
                     onChange={(event) => {
-                      const body = event.target.value;
-                      const request = { ...entry.request };
-                      // An empty body means "no body"; the key is dropped to keep the digest unchanged.
-                      if (body === "") delete request.body;
-                      else request.body = body;
-                      action(index, { ...entry, request });
+                      const selector = event.target.value;
+                      // A scroll action's selector is optional; empty means scroll the window.
+                      if (entry.kind === "scroll") {
+                        action(index, { ...entry, selector: selector || undefined });
+                        return;
+                      }
+                      action(index, { ...entry, selector });
                     }}
                   />
-                </div>
-              )}
-              {entry.kind !== "request" && (
+                )}
+                {entry.kind === "scroll" && (
+                  <select
+                    aria-label={t("flowScrollDirection")}
+                    value={entry.to}
+                    disabled={disabled}
+                    onChange={(event) => {
+                      const to = event.target.value as "top" | "bottom";
+                      // The selector names the container to scroll; direction is independent of it.
+                      action(index, { ...entry, to });
+                    }}
+                  >
+                    <option value="bottom">{t("flowScrollBottom")}</option>
+                    <option value="top">{t("flowScrollTop")}</option>
+                  </select>
+                )}
                 <input
-                  aria-label={t("flowSelector")}
-                  value={entry.selector ?? ""}
+                  aria-label={t("flowCondition")}
+                  placeholder={t("flowConditionPlaceholder")}
+                  value={entry.when?.exists ?? ""}
                   disabled={disabled}
                   onChange={(event) => {
-                    const selector = event.target.value;
-                    // A scroll action's selector is optional; empty means scroll the window.
-                    if (entry.kind === "scroll") {
-                      action(index, { ...entry, selector: selector || undefined });
+                    // An empty field means "always run", so the condition is dropped rather than left invalid.
+                    const condition = event.target.value;
+                    if (!condition) {
+                      action(index, { ...entry, when: undefined });
                       return;
                     }
-                    action(index, { ...entry, selector });
+                    action(index, { ...entry, when: { exists: condition } });
                   }}
                 />
-              )}
-              {entry.kind === "scroll" && (
-                <select
-                  aria-label={t("flowScrollDirection")}
-                  value={entry.to}
-                  disabled={disabled}
-                  onChange={(event) => {
-                    const to = event.target.value as "top" | "bottom";
-                    // The selector names the container to scroll; direction is independent of it.
-                    action(index, { ...entry, to });
-                  }}
+                <label className="workflow-check action-error">
+                  <input
+                    type="checkbox"
+                    aria-label={t("flowOnError")}
+                    checked={entry.onError === "skip"}
+                    disabled={disabled}
+                    onChange={(event) => {
+                      // Unchecking drops the branch so the default `fail` behaviour is stored.
+                      if (event.target.checked) action(index, { ...entry, onError: "skip" });
+                      else action(index, { ...entry, onError: undefined });
+                    }}
+                  />
+                  {t("flowOnError")}
+                </label>
+                {entry.kind === "fill" && (
+                  <input
+                    aria-label={t("flowValue")}
+                    value={entry.value}
+                    disabled={disabled}
+                    onChange={(event) => action(index, { ...entry, value: event.target.value })}
+                  />
+                )}
+                <Button
+                  tone="ghost"
+                  aria-label={t("flowMoveUp")}
+                  disabled={disabled || index === 0}
+                  onClick={() => move(index, -1)}
                 >
-                  <option value="bottom">{t("flowScrollBottom")}</option>
-                  <option value="top">{t("flowScrollTop")}</option>
-                </select>
-              )}
-              <input
-                aria-label={t("flowCondition")}
-                placeholder={t("flowConditionPlaceholder")}
-                value={entry.when?.exists ?? ""}
-                disabled={disabled}
-                onChange={(event) => {
-                  // An empty field means "always run", so the condition is dropped rather than left invalid.
-                  const condition = event.target.value;
-                  if (!condition) {
-                    action(index, { ...entry, when: undefined });
-                    return;
+                  <ArrowUp size={14} />
+                </Button>
+                <Button
+                  tone="ghost"
+                  aria-label={t("flowMoveDown")}
+                  disabled={disabled || index === workflow.before.length - 1}
+                  onClick={() => move(index, 1)}
+                >
+                  <ArrowDown size={14} />
+                </Button>
+                <Button
+                  tone="ghost"
+                  aria-label={t("flowRemove")}
+                  disabled={disabled}
+                  onClick={() =>
+                    onChange({
+                      ...workflow,
+                      before: workflow.before.filter((_entry, at) => at !== index),
+                    })
                   }
-                  action(index, { ...entry, when: { exists: condition } });
+                >
+                  <Trash2 size={14} />
+                </Button>
+              </li>
+            ))}
+          </ol>
+          <div className="workflow-actions">
+            {(["click", "fill", "wait", "scroll", "request"] as const).map((kind) => (
+              <Button
+                key={kind}
+                disabled={disabled || workflow.before.length >= 20}
+                onClick={() => {
+                  let entry: WorkflowAction = { kind: "click", selector: "" };
+                  if (kind === "fill") entry = { kind, selector: "", value: "" };
+                  if (kind === "wait") entry = { kind, selector: "" };
+                  if (kind === "scroll") entry = { kind: "scroll", to: "bottom" };
+                  if (kind === "request")
+                    entry = {
+                      kind,
+                      request: {
+                        method: "GET",
+                        url: "",
+                        headers: {},
+                        timeoutMs: 10000,
+                        expectStatus: 200,
+                      },
+                    };
+                  onChange({ ...workflow, before: [...workflow.before, entry] });
+                }}
+              >
+                <Plus size={13} />
+                {t(stepKeys[kind])}
+              </Button>
+            ))}
+          </div>
+        </section>
+        <section className="workflow-section">
+          <div className="workflow-section-title">
+            <span>{"02"}</span>
+            <div>
+              <h2>{t("flowExtract")}</h2>
+              <p>{t("flowExtractHint")}</p>
+            </div>
+          </div>
+          <SuggestPanel
+            disabled={disabled}
+            url={url}
+            onApply={(next) => {
+              // A picked proposal carries the selector the user just confirmed,
+              // so it replaces a same-name field instead of being dropped by it —
+              // otherwise the placeholder whole-item "title" survives and the
+              // record collects the row's concatenated text.
+              const merged = workflow.extract.fields.map((field) => ({ ...field }));
+              for (const field of next.fields) {
+                const replacement = {
+                  name: field.name,
+                  selector: field.selector,
+                  attribute: field.attribute as "text" | "href" | "src" | "value",
+                  required: false,
+                };
+                const at = merged.findIndex((existing) => existing.name === field.name);
+                if (at === -1) merged.push(replacement);
+                else merged[at] = replacement;
+              }
+              const applied: CollectionWorkflow = {
+                ...workflow,
+                extract: {
+                  items: next.items,
+                  fields: merged,
+                },
+              };
+              // A proposed next-page selector only replaces an empty loop.
+              if (next.pagination && !workflow.pagination)
+                applied.pagination = { next: next.pagination, maxPages: 10 };
+              onChange(applied);
+              setMessage(t("suggestApplied"));
+            }}
+          />
+          <div className="workflow-field">
+            <span>{t("flowItems")}</span>
+            <SelectorPickRow
+              value={workflow.extract.items}
+              placeholder={t("flowItemsExample")}
+              disabled={disabled}
+              target="extract.items"
+              ariaLabel={t("flowItems")}
+              onChange={(items) =>
+                onChange({ ...workflow, extract: { ...workflow.extract, items } })
+              }
+              onApply={(items) =>
+                onChange({ ...workflow, extract: { ...workflow.extract, items } })
+              }
+            />
+          </div>
+          <MissingPolicySelect
+            extraction={workflow.extract}
+            disabled={disabled}
+            onChange={(extract) => onChange({ ...workflow, extract })}
+          />
+          <ExtractionFields
+            fields={workflow.extract.fields}
+            disabled={disabled}
+            pickPrefix="extract"
+            onChange={(fields) =>
+              onChange({ ...workflow, extract: { ...workflow.extract, fields } })
+            }
+          />
+        </section>
+        <section className="workflow-section loop-section">
+          <div className="workflow-section-title">
+            <span>{"03"}</span>
+            <div>
+              <h2>{t("flowLoop")}</h2>
+              <p>{t("flowLoopHint")}</p>
+            </div>
+          </div>
+          <label className="workflow-check">
+            <input
+              type="checkbox"
+              checked={Boolean(workflow.pagination)}
+              disabled={disabled}
+              onChange={(event) => {
+                let pagination: CollectionWorkflow["pagination"] = null;
+                if (event.target.checked) pagination = { next: "", maxPages: 10 };
+                onChange({ ...workflow, pagination });
+              }}
+            />
+            {t("flowEnableLoop")}
+          </label>
+          {workflow.pagination && (
+            <>
+              <div className="workflow-form-row">
+                <label className="workflow-field">
+                  {t("flowPaginationMode")}
+                  <select
+                    value={paginationModeValue(workflow.pagination)}
+                    disabled={disabled}
+                    onChange={(event) => {
+                      if (!workflow.pagination) return;
+                      let pagination: CollectionWorkflow["pagination"];
+                      if (event.target.value === "url")
+                        pagination = {
+                          urlTemplate: "https://example.com/list?page={{page}}",
+                          startPage: 1,
+                          maxPages: workflow.pagination.maxPages,
+                        };
+                      else if (event.target.value === "cursor")
+                        pagination = {
+                          cursor: {
+                            request: {
+                              method: "GET",
+                              url: "https://api.example.com/page",
+                              headers: {},
+                              timeoutMs: 5000,
+                              expectStatus: 200,
+                            },
+                            pattern: "next=(\\S+)",
+                          },
+                          maxPages: workflow.pagination.maxPages,
+                        };
+                      else if (event.target.value === "scroll")
+                        pagination = {
+                          scroll: { to: "bottom" },
+                          maxPages: workflow.pagination.maxPages,
+                        };
+                      else pagination = { next: "", maxPages: workflow.pagination.maxPages };
+                      onChange({ ...workflow, pagination });
+                    }}
+                  >
+                    <option value="click">{t("flowPaginationClick")}</option>
+                    <option value="url">{t("flowPaginationUrl")}</option>
+                    <option value="cursor">{t("flowPaginationCursor")}</option>
+                    <option value="scroll">{t("flowPaginationScroll")}</option>
+                  </select>
+                </label>
+                <label className="workflow-field short-field">
+                  {t("flowMaxPages")}
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={workflow.pagination.maxPages}
+                    disabled={disabled}
+                    onChange={(event) => {
+                      if (workflow.pagination)
+                        onChange({
+                          ...workflow,
+                          pagination: {
+                            ...workflow.pagination,
+                            maxPages: Number(event.target.value),
+                          },
+                        });
+                    }}
+                  />
+                </label>
+              </div>
+              {paginationModeValue(workflow.pagination) === "url" &&
+                isUrlPagination(workflow.pagination) && (
+                  <UrlPaginationFields
+                    pagination={workflow.pagination}
+                    disabled={disabled}
+                    onChange={(pagination) => onChange({ ...workflow, pagination })}
+                  />
+                )}
+              {paginationModeValue(workflow.pagination) === "cursor" &&
+                isCursorPagination(workflow.pagination) && (
+                  <CursorPaginationFields
+                    pagination={workflow.pagination}
+                    disabled={disabled}
+                    onChange={(pagination) => onChange({ ...workflow, pagination })}
+                  />
+                )}
+              {paginationModeValue(workflow.pagination) === "scroll" &&
+                isScrollPagination(workflow.pagination) && (
+                  <ScrollPaginationFields
+                    pagination={workflow.pagination}
+                    disabled={disabled}
+                    onChange={(pagination) => onChange({ ...workflow, pagination })}
+                  />
+                )}
+              {paginationModeValue(workflow.pagination) === "click" && (
+                <ClickPaginationFields
+                  pagination={workflow.pagination as { next: string; maxPages: number }}
+                  disabled={disabled}
+                  onChange={(pagination) => onChange({ ...workflow, pagination })}
+                />
+              )}
+            </>
+          )}
+          <div className="workflow-form-row">
+            <label className="workflow-field">
+              {t("flowTimeout")}
+              <input
+                type="number"
+                min={100}
+                max={15000}
+                value={workflow.waitTimeoutMs}
+                disabled={disabled}
+                onChange={(event) =>
+                  onChange({ ...workflow, waitTimeoutMs: Number(event.target.value) })
+                }
+              />
+            </label>
+            <label className="workflow-field">
+              {t("flowMaxRecords")}
+              <input
+                type="number"
+                min={1}
+                max={2000}
+                value={workflow.maxRecords}
+                disabled={disabled}
+                onChange={(event) =>
+                  onChange({ ...workflow, maxRecords: Number(event.target.value) })
+                }
+              />
+            </label>
+          </div>
+          <div className="workflow-form-row">
+            <label className="workflow-field">
+              {t("flowDedupe")}
+              <input
+                value={(workflow.dedupe ?? []).join(",")}
+                disabled={disabled}
+                placeholder={t("flowDedupe")}
+                onChange={(event) =>
+                  onChange({
+                    ...workflow,
+                    dedupe: event.target.value
+                      .split(",")
+                      .map((name) => name.trim())
+                      .filter(Boolean)
+                      .slice(0, 8),
+                  })
+                }
+              />
+            </label>
+          </div>
+          <div className="workflow-form-row">
+            <label className="workflow-field">
+              {t("flowWatermark")}
+              <input
+                value={workflow.watermark?.field ?? ""}
+                disabled={disabled}
+                placeholder={t("flowWatermark")}
+                onChange={(event) => {
+                  const value = event.target.value.trim();
+                  const next = { ...workflow };
+                  // An empty field means "no incremental watermark", so the key is dropped.
+                  if (value === "") delete next.watermark;
+                  else next.watermark = { field: value };
+                  onChange(next);
                 }}
               />
-              <label className="workflow-check action-error">
+              <span className="workflow-hint">{t("flowWatermarkHint")}</span>
+            </label>
+            <label className="workflow-field">
+              {t("flowFilter")}
+              <input
+                value={workflow.filter ?? ""}
+                disabled={disabled}
+                placeholder={t("flowFilter")}
+                onChange={(event) => {
+                  const value = event.target.value.trim();
+                  const next = { ...workflow };
+                  if (value === "") delete next.filter;
+                  else next.filter = event.target.value;
+                  onChange(next);
+                }}
+              />
+              <span className="workflow-hint">{t("flowFilterHint")}</span>
+            </label>
+          </div>
+          <p className="workflow-hint">{t("flowSourceInfo")}</p>
+          <div className="workflow-form-row">
+            <label className="workflow-check">
+              <input
+                type="checkbox"
+                checked={Boolean(workflow.source?.url)}
+                disabled={disabled}
+                onChange={(event) => toggleSource("url", event.target.checked)}
+              />
+              {t("flowSourceUrl")}
+            </label>
+            <label className="workflow-check">
+              <input
+                type="checkbox"
+                checked={Boolean(workflow.source?.page)}
+                disabled={disabled}
+                onChange={(event) => toggleSource("page", event.target.checked)}
+              />
+              {t("flowSourcePage")}
+            </label>
+            <label className="workflow-check">
+              <input
+                type="checkbox"
+                checked={Boolean(workflow.source?.origin)}
+                disabled={disabled}
+                onChange={(event) => toggleSource("origin", event.target.checked)}
+              />
+              {t("flowSourceOrigin")}
+            </label>
+          </div>
+          <p className="workflow-hint">{t("flowSourceInfoHint")}</p>
+          <p className="workflow-hint">{t("flowMappingInfo")}</p>
+          {(workflow.mapping ?? []).map((entry, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: mapping rows are controlled and have no stable identity in the executable schema.
+            <div className="workflow-form-row" key={`mapping-${index}`}>
+              <label className="workflow-field">
+                {t("flowMappingFrom")}
                 <input
-                  type="checkbox"
-                  aria-label={t("flowOnError")}
-                  checked={entry.onError === "skip"}
+                  value={entry.from}
                   disabled={disabled}
-                  onChange={(event) => {
-                    // Unchecking drops the branch so the default `fail` behaviour is stored.
-                    if (event.target.checked) action(index, { ...entry, onError: "skip" });
-                    else action(index, { ...entry, onError: undefined });
-                  }}
+                  placeholder={t("flowMappingFromPlaceholder")}
+                  onChange={(event) => updateMapping(index, "from", event.target.value)}
                 />
-                {t("flowOnError")}
               </label>
-              {entry.kind === "fill" && (
+              <label className="workflow-field">
+                {t("flowMappingTo")}
                 <input
-                  aria-label={t("flowValue")}
-                  value={entry.value}
+                  value={entry.to}
                   disabled={disabled}
-                  onChange={(event) => action(index, { ...entry, value: event.target.value })}
+                  placeholder={t("flowMappingToPlaceholder")}
+                  onChange={(event) => updateMapping(index, "to", event.target.value)}
                 />
-              )}
-              <Button
-                tone="ghost"
-                aria-label={t("flowMoveUp")}
-                disabled={disabled || index === 0}
-                onClick={() => move(index, -1)}
-              >
-                <ArrowUp size={14} />
-              </Button>
-              <Button
-                tone="ghost"
-                aria-label={t("flowMoveDown")}
-                disabled={disabled || index === workflow.before.length - 1}
-                onClick={() => move(index, 1)}
-              >
-                <ArrowDown size={14} />
-              </Button>
+              </label>
               <Button
                 tone="ghost"
                 aria-label={t("flowRemove")}
                 disabled={disabled}
                 onClick={() =>
-                  onChange({
-                    ...workflow,
-                    before: workflow.before.filter((_entry, at) => at !== index),
-                  })
+                  setMapping((workflow.mapping ?? []).filter((_entry, at) => at !== index))
                 }
               >
                 <Trash2 size={14} />
               </Button>
-            </li>
-          ))}
-        </ol>
-        <div className="workflow-actions">
-          {(["click", "fill", "wait", "scroll", "request"] as const).map((kind) => (
-            <Button
-              key={kind}
-              disabled={disabled || workflow.before.length >= 20}
-              onClick={() => {
-                let entry: WorkflowAction = { kind: "click", selector: "" };
-                if (kind === "fill") entry = { kind, selector: "", value: "" };
-                if (kind === "wait") entry = { kind, selector: "" };
-                if (kind === "scroll") entry = { kind: "scroll", to: "bottom" };
-                if (kind === "request")
-                  entry = {
-                    kind,
-                    request: {
-                      method: "GET",
-                      url: "",
-                      headers: {},
-                      timeoutMs: 10000,
-                      expectStatus: 200,
-                    },
-                  };
-                onChange({ ...workflow, before: [...workflow.before, entry] });
-              }}
-            >
-              <Plus size={13} />
-              {t(stepKeys[kind])}
-            </Button>
-          ))}
-        </div>
-      </section>
-      <section className="workflow-section">
-        <div className="workflow-section-title">
-          <span>{"02"}</span>
-          <div>
-            <h2>{t("flowExtract")}</h2>
-            <p>{t("flowExtractHint")}</p>
-          </div>
-        </div>
-        <SuggestPanel
-          disabled={disabled}
-          url={url}
-          onApply={(next) => {
-            // A picked proposal carries the selector the user just confirmed,
-            // so it replaces a same-name field instead of being dropped by it —
-            // otherwise the placeholder whole-item "title" survives and the
-            // record collects the row's concatenated text.
-            const merged = workflow.extract.fields.map((field) => ({ ...field }));
-            for (const field of next.fields) {
-              const replacement = {
-                name: field.name,
-                selector: field.selector,
-                attribute: field.attribute as "text" | "href" | "src" | "value",
-                required: false,
-              };
-              const at = merged.findIndex((existing) => existing.name === field.name);
-              if (at === -1) merged.push(replacement);
-              else merged[at] = replacement;
-            }
-            const applied: CollectionWorkflow = {
-              ...workflow,
-              extract: {
-                items: next.items,
-                fields: merged,
-              },
-            };
-            // A proposed next-page selector only replaces an empty loop.
-            if (next.pagination && !workflow.pagination)
-              applied.pagination = { next: next.pagination, maxPages: 10 };
-            onChange(applied);
-            setMessage(t("suggestApplied"));
-          }}
-        />
-        <label className="workflow-field">
-          {t("flowItems")}
-          <input
-            value={workflow.extract.items}
-            placeholder={t("flowItemsExample")}
-            disabled={disabled}
-            onChange={(event) =>
-              onChange({ ...workflow, extract: { ...workflow.extract, items: event.target.value } })
-            }
-          />
-        </label>
-        <MissingPolicySelect
-          extraction={workflow.extract}
-          disabled={disabled}
-          onChange={(extract) => onChange({ ...workflow, extract })}
-        />
-        <ExtractionFields
-          fields={workflow.extract.fields}
-          disabled={disabled}
-          onChange={(fields) => onChange({ ...workflow, extract: { ...workflow.extract, fields } })}
-        />
-      </section>
-      <section className="workflow-section loop-section">
-        <div className="workflow-section-title">
-          <span>{"03"}</span>
-          <div>
-            <h2>{t("flowLoop")}</h2>
-            <p>{t("flowLoopHint")}</p>
-          </div>
-        </div>
-        <label className="workflow-check">
-          <input
-            type="checkbox"
-            checked={Boolean(workflow.pagination)}
-            disabled={disabled}
-            onChange={(event) => {
-              let pagination: CollectionWorkflow["pagination"] = null;
-              if (event.target.checked) pagination = { next: "", maxPages: 10 };
-              onChange({ ...workflow, pagination });
-            }}
-          />
-          {t("flowEnableLoop")}
-        </label>
-        {workflow.pagination && (
-          <>
-            <div className="workflow-form-row">
-              <label className="workflow-field">
-                {t("flowPaginationMode")}
-                <select
-                  value={paginationModeValue(workflow.pagination)}
-                  disabled={disabled}
-                  onChange={(event) => {
-                    if (!workflow.pagination) return;
-                    let pagination: CollectionWorkflow["pagination"];
-                    if (event.target.value === "url")
-                      pagination = {
-                        urlTemplate: "https://example.com/list?page={{page}}",
-                        startPage: 1,
-                        maxPages: workflow.pagination.maxPages,
-                      };
-                    else if (event.target.value === "cursor")
-                      pagination = {
-                        cursor: {
-                          request: {
-                            method: "GET",
-                            url: "https://api.example.com/page",
-                            headers: {},
-                            timeoutMs: 5000,
-                            expectStatus: 200,
-                          },
-                          pattern: "next=(\\S+)",
-                        },
-                        maxPages: workflow.pagination.maxPages,
-                      };
-                    else if (event.target.value === "scroll")
-                      pagination = {
-                        scroll: { to: "bottom" },
-                        maxPages: workflow.pagination.maxPages,
-                      };
-                    else pagination = { next: "", maxPages: workflow.pagination.maxPages };
-                    onChange({ ...workflow, pagination });
-                  }}
-                >
-                  <option value="click">{t("flowPaginationClick")}</option>
-                  <option value="url">{t("flowPaginationUrl")}</option>
-                  <option value="cursor">{t("flowPaginationCursor")}</option>
-                  <option value="scroll">{t("flowPaginationScroll")}</option>
-                </select>
-              </label>
-              <label className="workflow-field short-field">
-                {t("flowMaxPages")}
-                <input
-                  type="number"
-                  min={1}
-                  max={50}
-                  value={workflow.pagination.maxPages}
-                  disabled={disabled}
-                  onChange={(event) => {
-                    if (workflow.pagination)
-                      onChange({
-                        ...workflow,
-                        pagination: {
-                          ...workflow.pagination,
-                          maxPages: Number(event.target.value),
-                        },
-                      });
-                  }}
-                />
-              </label>
             </div>
-            {paginationModeValue(workflow.pagination) === "url" &&
-              isUrlPagination(workflow.pagination) && (
-                <UrlPaginationFields
-                  pagination={workflow.pagination}
-                  disabled={disabled}
-                  onChange={(pagination) => onChange({ ...workflow, pagination })}
-                />
-              )}
-            {paginationModeValue(workflow.pagination) === "cursor" &&
-              isCursorPagination(workflow.pagination) && (
-                <CursorPaginationFields
-                  pagination={workflow.pagination}
-                  disabled={disabled}
-                  onChange={(pagination) => onChange({ ...workflow, pagination })}
-                />
-              )}
-            {paginationModeValue(workflow.pagination) === "scroll" &&
-              isScrollPagination(workflow.pagination) && (
-                <ScrollPaginationFields
-                  pagination={workflow.pagination}
-                  disabled={disabled}
-                  onChange={(pagination) => onChange({ ...workflow, pagination })}
-                />
-              )}
-            {paginationModeValue(workflow.pagination) === "click" && (
-              <ClickPaginationFields
-                pagination={workflow.pagination as { next: string; maxPages: number }}
-                disabled={disabled}
-                onChange={(pagination) => onChange({ ...workflow, pagination })}
-              />
-            )}
-          </>
-        )}
-        <div className="workflow-form-row">
-          <label className="workflow-field">
-            {t("flowTimeout")}
+          ))}
+          <Button
+            disabled={disabled || (workflow.mapping?.length ?? 0) >= 64}
+            onClick={() => setMapping([...(workflow.mapping ?? []), { from: "", to: "" }])}
+          >
+            <Plus size={13} />
+            {t("flowMappingAdd")}
+          </Button>
+          <p className="workflow-hint">{t("flowMappingInfoHint")}</p>
+        </section>
+        <section className="workflow-section">
+          <div className="workflow-section-title">
+            <span>{"04"}</span>
+            <div>
+              <h2>{t("flowDetail")}</h2>
+              <p>{t("flowDetailHint")}</p>
+            </div>
+          </div>
+          <label className="workflow-check">
             <input
-              type="number"
-              min={100}
-              max={15000}
-              value={workflow.waitTimeoutMs}
+              type="checkbox"
+              checked={Boolean(detail)}
               disabled={disabled}
-              onChange={(event) =>
-                onChange({ ...workflow, waitTimeoutMs: Number(event.target.value) })
-              }
-            />
-          </label>
-          <label className="workflow-field">
-            {t("flowMaxRecords")}
-            <input
-              type="number"
-              min={1}
-              max={2000}
-              value={workflow.maxRecords}
-              disabled={disabled}
-              onChange={(event) =>
-                onChange({ ...workflow, maxRecords: Number(event.target.value) })
-              }
-            />
-          </label>
-        </div>
-        <div className="workflow-form-row">
-          <label className="workflow-field">
-            {t("flowDedupe")}
-            <input
-              value={(workflow.dedupe ?? []).join(",")}
-              disabled={disabled}
-              placeholder={t("flowDedupe")}
-              onChange={(event) =>
-                onChange({
-                  ...workflow,
-                  dedupe: event.target.value
-                    .split(",")
-                    .map((name) => name.trim())
-                    .filter(Boolean)
-                    .slice(0, 8),
-                })
-              }
-            />
-          </label>
-        </div>
-        <div className="workflow-form-row">
-          <label className="workflow-field">
-            {t("flowWatermark")}
-            <input
-              value={workflow.watermark?.field ?? ""}
-              disabled={disabled}
-              placeholder={t("flowWatermark")}
               onChange={(event) => {
-                const value = event.target.value.trim();
-                const next = { ...workflow };
-                // An empty field means "no incremental watermark", so the key is dropped.
-                if (value === "") delete next.watermark;
-                else next.watermark = { field: value };
-                onChange(next);
+                let next: CollectionWorkflow["detail"];
+                if (event.target.checked)
+                  next = {
+                    link: "",
+                    extract: {
+                      items: "",
+                      fields: [
+                        { name: "detail", selector: "", attribute: "text", required: false },
+                      ],
+                    },
+                    maxItems: 10,
+                  };
+                onChange({ ...workflow, detail: next });
               }}
             />
-            <span className="workflow-hint">{t("flowWatermarkHint")}</span>
+            {t("flowEnableDetail")}
           </label>
-          <label className="workflow-field">
-            {t("flowFilter")}
-            <input
-              value={workflow.filter ?? ""}
+          {detail && (
+            <TraversalEditor
+              depth={1}
+              node={detail}
               disabled={disabled}
-              placeholder={t("flowFilter")}
-              onChange={(event) => {
-                const value = event.target.value.trim();
-                const next = { ...workflow };
-                if (value === "") delete next.filter;
-                else next.filter = event.target.value;
-                onChange(next);
-              }}
+              onNode={(node) => onChange({ ...workflow, detail: node })}
             />
-            <span className="workflow-hint">{t("flowFilterHint")}</span>
-          </label>
-        </div>
-        <p className="workflow-hint">{t("flowSourceInfo")}</p>
-        <div className="workflow-form-row">
-          <label className="workflow-check">
-            <input
-              type="checkbox"
-              checked={Boolean(workflow.source?.url)}
-              disabled={disabled}
-              onChange={(event) => toggleSource("url", event.target.checked)}
-            />
-            {t("flowSourceUrl")}
-          </label>
-          <label className="workflow-check">
-            <input
-              type="checkbox"
-              checked={Boolean(workflow.source?.page)}
-              disabled={disabled}
-              onChange={(event) => toggleSource("page", event.target.checked)}
-            />
-            {t("flowSourcePage")}
-          </label>
-          <label className="workflow-check">
-            <input
-              type="checkbox"
-              checked={Boolean(workflow.source?.origin)}
-              disabled={disabled}
-              onChange={(event) => toggleSource("origin", event.target.checked)}
-            />
-            {t("flowSourceOrigin")}
-          </label>
-        </div>
-        <p className="workflow-hint">{t("flowSourceInfoHint")}</p>
-        <p className="workflow-hint">{t("flowMappingInfo")}</p>
-        {(workflow.mapping ?? []).map((entry, index) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: mapping rows are controlled and have no stable identity in the executable schema.
-          <div className="workflow-form-row" key={`mapping-${index}`}>
-            <label className="workflow-field">
-              {t("flowMappingFrom")}
-              <input
-                value={entry.from}
-                disabled={disabled}
-                placeholder={t("flowMappingFromPlaceholder")}
-                onChange={(event) => updateMapping(index, "from", event.target.value)}
-              />
-            </label>
-            <label className="workflow-field">
-              {t("flowMappingTo")}
-              <input
-                value={entry.to}
-                disabled={disabled}
-                placeholder={t("flowMappingToPlaceholder")}
-                onChange={(event) => updateMapping(index, "to", event.target.value)}
-              />
-            </label>
-            <Button
-              tone="ghost"
-              aria-label={t("flowRemove")}
-              disabled={disabled}
-              onClick={() =>
-                setMapping((workflow.mapping ?? []).filter((_entry, at) => at !== index))
-              }
-            >
-              <Trash2 size={14} />
-            </Button>
-          </div>
-        ))}
-        <Button
-          disabled={disabled || (workflow.mapping?.length ?? 0) >= 64}
-          onClick={() => setMapping([...(workflow.mapping ?? []), { from: "", to: "" }])}
-        >
-          <Plus size={13} />
-          {t("flowMappingAdd")}
-        </Button>
-        <p className="workflow-hint">{t("flowMappingInfoHint")}</p>
-      </section>
-      <section className="workflow-section">
-        <div className="workflow-section-title">
-          <span>{"04"}</span>
-          <div>
-            <h2>{t("flowDetail")}</h2>
-            <p>{t("flowDetailHint")}</p>
-          </div>
-        </div>
-        <label className="workflow-check">
-          <input
-            type="checkbox"
-            checked={Boolean(detail)}
-            disabled={disabled}
-            onChange={(event) => {
-              let next: CollectionWorkflow["detail"];
-              if (event.target.checked)
-                next = {
-                  link: "",
-                  extract: {
-                    items: "",
-                    fields: [{ name: "detail", selector: "", attribute: "text", required: false }],
-                  },
-                  maxItems: 10,
-                };
-              onChange({ ...workflow, detail: next });
-            }}
-          />
-          {t("flowEnableDetail")}
-        </label>
-        {detail && (
-          <TraversalEditor
-            depth={1}
-            node={detail}
-            disabled={disabled}
-            onNode={(node) => onChange({ ...workflow, detail: node })}
-          />
-        )}
-      </section>
+          )}
+        </section>
 
-      <details
-        className="workflow-section"
-        onToggle={(event) => {
-          if (event.currentTarget.open) setSource(JSON.stringify(workflow, null, 2));
-        }}
-      >
-        <summary>{t("flowSource")}</summary>
-        <p className="workflow-muted">{t("flowSourceHint")}</p>
-        <textarea
-          className="workflow-source"
-          spellCheck={false}
-          aria-label={t("flowSource")}
-          value={source}
-          disabled={disabled}
-          onChange={(event) => setSource(event.target.value)}
-        />
-        <Button
-          disabled={disabled}
-          onClick={() => {
-            try {
-              onChange(collectionWorkflowSchema.parse(JSON.parse(source)));
-              setError("");
-            } catch {
-              setError(t("flowInvalidScript"));
-            }
+        <details
+          className="workflow-section"
+          onToggle={(event) => {
+            if (event.currentTarget.open) setSource(JSON.stringify(workflow, null, 2));
           }}
         >
-          {t("flowApplySource")}
-        </Button>
-        {error && <p role="alert">{error}</p>}
-      </details>
-    </div>
+          <summary>{t("flowSource")}</summary>
+          <p className="workflow-muted">{t("flowSourceHint")}</p>
+          <textarea
+            className="workflow-source"
+            spellCheck={false}
+            aria-label={t("flowSource")}
+            value={source}
+            disabled={disabled}
+            onChange={(event) => setSource(event.target.value)}
+          />
+          <Button
+            disabled={disabled}
+            onClick={() => {
+              try {
+                onChange(collectionWorkflowSchema.parse(JSON.parse(source)));
+                setError("");
+              } catch {
+                setError(t("flowInvalidScript"));
+              }
+            }}
+          >
+            {t("flowApplySource")}
+          </Button>
+          {error && <p role="alert">{error}</p>}
+        </details>
+      </div>
+    </PickerContext.Provider>
   );
 }
 
@@ -1050,15 +1168,18 @@ function TraversalEditor({
   return (
     <>
       <div className="workflow-form-row">
-        <label className="workflow-field">
-          {t("flowDetailLink")}
-          <input
+        <div className="workflow-field">
+          <span>{t("flowDetailLink")}</span>
+          <SelectorPickRow
             value={node.link}
             disabled={disabled}
+            target={`detail.${depth}.link`}
+            ariaLabel={t("flowDetailLink")}
             placeholder={t("flowDetailLinkExample")}
-            onChange={(event) => onNode({ ...node, link: event.target.value })}
+            onChange={(link) => onNode({ ...node, link })}
+            onApply={(link) => onNode({ ...node, link })}
           />
-        </label>
+        </div>
         <label className="workflow-field short-field">
           {t("flowDetailMaxItems")}
           <input
@@ -1103,6 +1224,7 @@ function TraversalEditor({
       <ExtractionFields
         fields={node.extract.fields}
         disabled={disabled}
+        pickPrefix={`detail.${depth}`}
         onChange={(fields) => onNode({ ...node, extract: { ...node.extract, fields } })}
       />
       <label className="workflow-check">
@@ -1133,6 +1255,7 @@ function TraversalEditor({
           <RowsEditor
             rows={node.rows}
             disabled={disabled}
+            pickPrefix={`detail.${depth}.rows`}
             onChange={(rows) => onNode({ ...node, rows })}
           />
           {childDepth <= 3 && (
@@ -1223,26 +1346,33 @@ function RowsEditor({
   rows,
   disabled,
   onChange,
+  pickPrefix,
 }: {
   rows: Extraction;
   disabled: boolean;
+  /** Pick target namespace for this nested rows block. */
+  pickPrefix: string;
   onChange(rows: Extraction): void;
 }) {
   const { t } = useI18n();
   return (
     <>
-      <label className="workflow-field">
-        {t("flowRowsItems")}
-        <input
+      <div className="workflow-field">
+        <span>{t("flowRowsItems")}</span>
+        <SelectorPickRow
           value={rows.items}
           disabled={disabled}
-          onChange={(event) => onChange({ ...rows, items: event.target.value })}
+          target={`${pickPrefix}.items`}
+          ariaLabel={t("flowRowsItems")}
+          onChange={(items) => onChange({ ...rows, items })}
+          onApply={(items) => onChange({ ...rows, items })}
         />
-      </label>
+      </div>
       <MissingPolicySelect extraction={rows} disabled={disabled} onChange={onChange} />
       <ExtractionFields
         fields={rows.fields}
         disabled={disabled}
+        pickPrefix={pickPrefix}
         onChange={(fields) => onChange({ ...rows, fields })}
       />
     </>
@@ -1254,10 +1384,13 @@ function ExtractionFields({
   fields,
   onChange,
   disabled,
+  pickPrefix,
 }: {
   fields: Extraction["fields"];
   onChange(fields: Extraction["fields"]): void;
   disabled: boolean;
+  /** Unique pick target namespace: list, detail or nested rows. */
+  pickPrefix: string;
 }) {
   const { t } = useI18n();
   function replace(index: number, next: Extraction["fields"][number]) {
@@ -1289,13 +1422,17 @@ function ExtractionFields({
               disabled={disabled}
               onChange={(event) => replace(index, { ...field, name: event.target.value })}
             />
-            <input
-              aria-label={t("flowFieldSelector")}
-              value={field.selector}
-              placeholder={t("flowFieldExample")}
-              disabled={disabled}
-              onChange={(event) => replace(index, { ...field, selector: event.target.value })}
-            />
+            <div className="pick-cell">
+              <SelectorPickRow
+                value={field.selector}
+                placeholder={t("flowFieldExample")}
+                disabled={disabled}
+                target={`${pickPrefix}.field.${index}`}
+                ariaLabel={t("flowFieldSelector")}
+                onChange={(selector) => replace(index, { ...field, selector })}
+                onApply={(selector) => replace(index, { ...field, selector })}
+              />
+            </div>
             <select
               aria-label={t("flowAttribute")}
               value={field.attribute}

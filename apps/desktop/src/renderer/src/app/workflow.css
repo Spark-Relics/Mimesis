@@ -128,6 +128,63 @@
 .collection-browser {
   width: 100%;
 }
+/* Same-screen workspace: live page on the left, selectors on the right. */
+.collection-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 460px);
+  gap: 18px;
+  align-items: start;
+}
+.collection-split .split-config {
+  max-height: calc(100vh - 210px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+@media (max-width: 1100px) {
+  .collection-split {
+    grid-template-columns: 1fr;
+  }
+  .collection-split .split-config {
+    max-height: none;
+    overflow: visible;
+  }
+}
+/* Selector input + click-to-pick button share one row. */
+.pick-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.pick-row input {
+  flex: 1;
+}
+.pick-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  min-height: 34px;
+  padding: 6px 10px;
+  color: #187b66;
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.pick-button:hover:not(:disabled) {
+  border-color: #187b66;
+}
+.pick-button.is-active {
+  color: #fff;
+  background: #187b66;
+  border-color: #187b66;
+}
+.pick-cell {
+  min-width: 0;
+}
 .recording-toolbar {
   display: flex;
   align-items: center;
