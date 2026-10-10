@@ -98,6 +98,13 @@ function WorkspaceContent({
             setNotice("watermarkCleared");
           });
         }}
+        onSetSchedule={(intervalMinutes) => {
+          void action(async () => {
+            await bridge.setInstanceSchedule(selectedInstance.id, intervalMinutes);
+            await refresh();
+            setNotice(intervalMinutes === null ? "scheduleCleared" : "scheduleSaved");
+          });
+        }}
         onRun={() => runInstance(selectedInstance)}
         onCancel={(id) => {
           void action(async () => {

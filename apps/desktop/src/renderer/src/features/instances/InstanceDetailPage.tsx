@@ -55,6 +55,7 @@ export function InstanceDetailPage({
   onRecordingChange,
   onUpdate,
   onClearWatermark,
+  onSetSchedule,
   onRun,
   onCancel,
   onNavigate,
@@ -70,6 +71,7 @@ export function InstanceDetailPage({
   onRecordingChange(recording: boolean): void;
   onUpdate(input: InstanceUpdate): void;
   onClearWatermark(): void;
+  onSetSchedule(intervalMinutes: number | null): void;
   onRun(): void;
   onCancel(id: string): void;
   onNavigate(url: string): void;
@@ -556,9 +558,10 @@ export function InstanceDetailPage({
             key={instance.updatedAt}
             instance={instance}
             workspace={workspace}
-            disabled={disabled}
-            onSave={onUpdate}
+              disabled={disabled}
+              onSave={onUpdate}
             onClearWatermark={onClearWatermark}
+            onSetSchedule={onSetSchedule}
           />
         )}
         {tab === "runs" && <RunsPage runs={instanceRuns} onCopyError={onCopyError} />}

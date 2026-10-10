@@ -15,6 +15,14 @@ import type {
 } from "@clawler/script-sdk";
 import { abortable } from "./abortable";
 
+export {
+  advanceSchedule,
+  armSchedule,
+  type Clock,
+  clearSchedule,
+  dueInstance,
+} from "./schedule";
+
 type RunListener = (run: Run) => void;
 
 /** Framework-independent execution state machine with exclusive browser ownership. */

@@ -35,24 +35,33 @@ const versionFourSchema = z.object({
   versions: z.array(workflowVersionSchema).max(500),
 });
 
+/** Version 6 adds the optional per-instance execution schedule and next due time. */
+const versionFiveSchema = versionFourSchema.extend({
+  schemaVersion: z.literal(5),
+  instances: z.array(automationInstanceSchema),
+});
+
 /**
- * Historical formats are confined here; current services only see version 5.
+ * Historical formats are confined here; current services only see version 6.
  * Version 4 adds immutable published workflow versions, so every older workspace
  * starts with an empty version set and an unbound (never published) instance.
  * Version 5 adds the optional per-instance incremental watermark.
+ * Version 6 adds the optional per-instance schedule and pending due time.
  */
 export function decodeState(input: unknown): StoredState {
   const version = z.object({ schemaVersion: z.number().int() }).parse(input).schemaVersion;
-  if (version === 5) return stateSchema.parse(input);
+  if (version === 6) return stateSchema.parse(input);
+  if (version === 5)
+    return stateSchema.parse({ ...versionFiveSchema.parse(input), schemaVersion: 6 });
   if (version === 4) {
     const migrated = versionFourSchema.parse(input);
-    return stateSchema.parse({ ...migrated, schemaVersion: 5 });
+    return stateSchema.parse({ ...migrated, schemaVersion: 6 });
   }
   if (version === 3) {
     const { instances, ...rest } = versionThreeSchema.parse(input);
     return stateSchema.parse({
       ...rest,
-      schemaVersion: 5,
+      schemaVersion: 6,
       instances: instances.map((instance) => ({ ...instance, publishedVersionId: null })),
       versions: [],
     });
@@ -90,7 +99,7 @@ export function decodeState(input: unknown): StoredState {
   return stateSchema.parse({
     profiles: legacy.profiles,
     selectedProfileId: legacy.selectedProfileId,
-    schemaVersion: 5,
+    schemaVersion: 6,
     instances: instances.map((instance) => ({ ...instance, publishedVersionId: null })),
     runs,
     versions: [],

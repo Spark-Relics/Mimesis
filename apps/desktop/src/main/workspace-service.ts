@@ -27,12 +27,21 @@ import {
   workflowDigest,
 } from "@clawler/script-registry";
 import type { StoredState, WorkspaceRepository } from "@clawler/storage";
-import { TaskRunner } from "@clawler/workflow-core";
+import {
+  advanceSchedule,
+  armSchedule,
+  clearSchedule,
+  dueInstance,
+  TaskRunner,
+} from "@clawler/workflow-core";
 import type { BrowserWindow } from "electron";
 import { dialog } from "electron";
 
 /** Cap for imported version files: schema bounds each part, this bounds the file overall. */
 const EXPORT_FILE_MAX_BYTES = 512 * 1024;
+
+/** How often the scheduler looks for a due instance. Sub-minute intervals still fire late-bound. */
+const SCHEDULE_TICK_MS = 15_000;
 
 export class WorkspaceService {
   private readonly registry = new ScriptRegistry();
@@ -45,6 +54,8 @@ export class WorkspaceService {
   private storageFailed = false;
   private stopping = false;
   private pendingRunSave: Promise<void> = Promise.resolve();
+  private readonly scheduleTimer: ReturnType<typeof setInterval>;
+  private scheduleTickPending = false;
 
   private constructor(
     private readonly window: BrowserWindow,
@@ -62,6 +73,7 @@ export class WorkspaceService {
     this.runner.subscribe((run) => this.recordRun(run));
     this.dryRunner.subscribe(emitRun);
     this.host.selectProfile(this.selectedProfile());
+    this.scheduleTimer = setInterval(() => void this.tickSchedule(), SCHEDULE_TICK_MS);
   }
 
   static async create(
@@ -88,7 +100,7 @@ export class WorkspaceService {
         publishedVersionId: null,
       };
       state = {
-        schemaVersion: 5,
+        schemaVersion: 6,
         instances: [instance],
         profiles: [profile],
         selectedProfileId: profile.id,
@@ -255,6 +267,42 @@ export class WorkspaceService {
     await this.pendingRunSave;
   }
 
+  /**
+   * Runs one due scheduled instance through the same published-version path as a
+   * manual run. The due time advances after the attempt (not before), so a crash
+   * mid-run causes at most one catch-up run after restart, and a persistently
+   * failing start cannot loop every tick. A busy runner defers to the next tick.
+   */
+  private async tickSchedule(): Promise<void> {
+    if (this.scheduleTickPending || this.stopping || this.storageFailed) return;
+    if (this.mutationPending) return;
+    if (this.runner.busy || this.dryRunner.busy || this.host.recorder.active) return;
+    const due = dueInstance(this.state.instances, new Date());
+    if (!due) return;
+    this.scheduleTickPending = true;
+    try {
+      try {
+        await this.dispatch({ method: "runs.start", instanceId: due.id });
+      } catch {
+        // A failed start (for example a race with a manual action) skips this occurrence.
+      }
+      const current = this.state.instances.find((entry) => entry.id === due.id);
+      if (!current?.schedule) return;
+      try {
+        await this.updateState({
+          ...this.state,
+          instances: this.state.instances.map((entry) =>
+            entry.id === current.id ? advanceSchedule(current, new Date()) : entry,
+          ),
+        });
+      } catch {
+        // nextRunAt stays due, so the next tick retries persisting the advancement.
+      }
+    } finally {
+      this.scheduleTickPending = false;
+    }
+  }
+
   private async updateState(next: StoredState): Promise<void> {
     if (this.mutationPending) throw new AppError("BUSY");
     this.mutationPending = true;
@@ -395,6 +443,27 @@ export class WorkspaceService {
         const instance: AutomationInstance = { ...current };
         delete instance.lastWatermark;
         instance.updatedAt = new Date().toISOString();
+        await this.updateState({
+          ...this.state,
+          instances: this.state.instances.map((entry) => {
+            if (entry.id === instance.id) return instance;
+            return entry;
+          }),
+        });
+        return instance;
+      }
+      case "instances.schedule": {
+        this.assertIdle();
+        if (this.host.recorder.active) throw new AppError("BUSY");
+        const current = this.state.instances.find((entry) => entry.id === request.id);
+        if (!current) throw new AppError("NOT_FOUND");
+        // Arming schedules the first automatic run one interval from now; clearing
+        // removes both the interval and any pending due time.
+        const scheduled =
+          request.intervalMinutes === null
+            ? clearSchedule(current)
+            : armSchedule(current, request.intervalMinutes, new Date());
+        const instance = { ...scheduled, updatedAt: new Date().toISOString() };
         await this.updateState({
           ...this.state,
           instances: this.state.instances.map((entry) => {
@@ -641,6 +710,7 @@ export class WorkspaceService {
   }
 
   dispose(): void {
+    clearInterval(this.scheduleTimer);
     this.runner.dispose();
     this.dryRunner.dispose();
     this.host.dispose();

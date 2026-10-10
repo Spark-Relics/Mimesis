@@ -26,7 +26,7 @@ const profile = {
   createdAt: "2026-09-11T00:00:00.000Z",
 };
 const state: StoredState = {
-  schemaVersion: 5,
+  schemaVersion: 6,
   profiles: [profile],
   selectedProfileId: profile.id,
   instances: [],

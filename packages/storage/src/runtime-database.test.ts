@@ -10,7 +10,7 @@ import { type StoredState, stateSchema } from "./state";
 
 function workspace(): StoredState {
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     profiles: [
       {
         id: execution.instance.profileId,
@@ -120,6 +120,38 @@ it("round trips an instance incremental watermark and keeps an unset one absent"
   expect(cleared).toEqual(stateSchema.parse({ ...base, instances: [instance] }));
 });
 
+it("round trips an instance execution schedule and keeps an unset one absent", async (context) => {
+  const { db } = await database(context);
+  const base = workspace();
+  const instance = base.instances[0];
+  if (!instance) throw new Error("Missing fixture");
+  const scheduled = {
+    ...instance,
+    schedule: { intervalMinutes: 30 },
+    nextRunAt: "2026-10-10T12:30:00.000Z",
+  };
+  db.dispatch({
+    method: "initialize",
+    workspace: { ...base, instances: [scheduled] },
+    gateway: null,
+  });
+  const loaded = db.dispatch({ method: "workspace.load" }) as StoredState;
+  expect(loaded.instances[0]?.schedule).toEqual({ intervalMinutes: 30 });
+  expect(loaded.instances[0]?.nextRunAt).toBe("2026-10-10T12:30:00.000Z");
+  // Clearing the schedule must drop both columns back to NULL, not stringified nulls.
+  db.dispatch({
+    method: "workspace.save",
+    state: {
+      ...base,
+      instances: [{ ...scheduled, schedule: undefined, nextRunAt: undefined }],
+    },
+  });
+  const cleared = db.dispatch({ method: "workspace.load" }) as StoredState;
+  expect(cleared.instances[0]).not.toHaveProperty("schedule");
+  expect(cleared.instances[0]).not.toHaveProperty("nextRunAt");
+  expect(cleared).toEqual(stateSchema.parse({ ...base, instances: [instance] }));
+});
+
 it("upgrades a database written before version binding without losing runs", async () => {
   const root = await mkdtemp(join(tmpdir(), "mimesis-upgrade-"));
   const file = join(root, "runtime.sqlite");
@@ -132,6 +164,8 @@ it("upgrades a database written before version binding without losing runs", asy
   legacy.exec("ALTER TABLE runs DROP COLUMN workflowVersionId");
   legacy.exec("ALTER TABLE instances DROP COLUMN publishedVersionId");
   legacy.exec("ALTER TABLE instances DROP COLUMN lastWatermark");
+  legacy.exec("ALTER TABLE instances DROP COLUMN schedule");
+  legacy.exec("ALTER TABLE instances DROP COLUMN nextRunAt");
   legacy.exec("ALTER TABLE steps DROP COLUMN detail");
   legacy.exec("ALTER TABLE steps DROP COLUMN errorCode");
   legacy.exec("PRAGMA user_version=1");
@@ -172,6 +206,8 @@ it("reads runs whose steps predate the detail column migration", async () => {
   legacy.exec("ALTER TABLE runs DROP COLUMN workflowVersionId");
   legacy.exec("ALTER TABLE instances DROP COLUMN publishedVersionId");
   legacy.exec("ALTER TABLE instances DROP COLUMN lastWatermark");
+  legacy.exec("ALTER TABLE instances DROP COLUMN schedule");
+  legacy.exec("ALTER TABLE instances DROP COLUMN nextRunAt");
   legacy.exec("ALTER TABLE steps DROP COLUMN detail");
   legacy.exec("ALTER TABLE steps DROP COLUMN errorCode");
   legacy.exec("PRAGMA user_version=1");

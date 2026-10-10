@@ -62,6 +62,10 @@ const bridge: DesktopBridge = {
     ),
   clearWatermark: async (id) =>
     automationInstanceSchema.parse(await request({ method: "instances.watermark.clear", id })),
+  setInstanceSchedule: async (id, intervalMinutes) =>
+    automationInstanceSchema.parse(
+      await request({ method: "instances.schedule", id, intervalMinutes }),
+    ),
   saveWorkflow: async (instanceId, workflow, input) =>
     automationInstanceSchema.parse(
       await request({ method: "workflow.save", instanceId, workflow, input }),

@@ -390,6 +390,16 @@ export const collectionRecordsSchema = z
   .max(2000);
 export type CollectionRecord = z.infer<typeof collectionRecordsSchema>[number];
 
+/**
+ * Interval-based automatic execution. The interval bounds how often a scheduled
+ * instance may start a run; the next due time is tracked separately so restarts
+ * resume deterministically instead of re-running everything immediately.
+ */
+export const instanceScheduleSchema = z.strictObject({
+  intervalMinutes: z.number().int().min(1).max(1440),
+});
+export type InstanceSchedule = z.infer<typeof instanceScheduleSchema>;
+
 export const automationInstanceSchema = z.object({
   id: z.string().uuid(),
   name: z.string().trim().min(1).max(64),
@@ -408,6 +418,13 @@ export const automationInstanceSchema = z.object({
    * workflow configures a watermark.
    */
   lastWatermark: z.string().max(16_000).optional(),
+  /** Automatic execution interval; absent means the instance only runs on demand. */
+  schedule: instanceScheduleSchema.optional(),
+  /**
+   * Next due time for the configured schedule. Persisted so a restart performs at
+   * most one catch-up run for a due instance instead of running it repeatedly.
+   */
+  nextRunAt: z.string().datetime().optional(),
 });
 export type AutomationInstance = z.infer<typeof automationInstanceSchema>;
 
@@ -695,6 +712,12 @@ export const requestSchema = z.discriminatedUnion("method", [
     input: instanceUpdateSchema,
   }),
   z.object({ method: z.literal("instances.watermark.clear"), id: z.string().uuid() }),
+  /** Sets or clears the automatic execution interval; null removes the schedule. */
+  z.object({
+    method: z.literal("instances.schedule"),
+    id: z.string().uuid(),
+    intervalMinutes: z.number().int().min(1).max(1440).nullable(),
+  }),
   z.object({
     method: z.literal("versions.publish"),
     instanceId: z.string().uuid(),
@@ -753,6 +776,8 @@ export interface DesktopBridge {
   createInstance(name: string): Promise<AutomationInstance>;
   updateInstance(id: string, input: InstanceUpdate): Promise<AutomationInstance>;
   clearWatermark(id: string): Promise<AutomationInstance>;
+  /** Sets (interval in minutes) or clears (null) automatic execution for an instance. */
+  setInstanceSchedule(id: string, intervalMinutes: number | null): Promise<AutomationInstance>;
   saveWorkflow(
     instanceId: string,
     workflow: CollectionWorkflow,

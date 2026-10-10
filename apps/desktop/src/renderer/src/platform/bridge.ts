@@ -53,6 +53,7 @@ function createPreviewBridge(): DesktopBridge {
     createInstance: async () => desktopRequired(),
     updateInstance: async () => desktopRequired(),
     clearWatermark: async () => desktopRequired(),
+    setInstanceSchedule: async () => desktopRequired(),
     saveWorkflow: async () => desktopRequired(),
     publishWorkflow: async () => desktopRequired(),
     rollbackWorkflow: async () => desktopRequired(),
